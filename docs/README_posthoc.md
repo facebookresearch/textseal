@@ -17,6 +17,7 @@ See [../README.md](../README.md) for environment setup.
 - Ensure access to a CUDA GPU for fast generation (e.g. with Flash Attention installed)
 - Log in to Hugging Face if pulling gated models/tokenizers
 
+
 ### Basic Usage
 
 Examples:
@@ -44,6 +45,62 @@ python -m apps.posthoc.main \
 ```
 
 ## More details
+
+### Python API
+
+```python
+from apps.posthoc.watermarker import PostHocWatermarker
+from apps.common.watermark.core import WatermarkConfig
+from apps.posthoc.config import PromptConfig, ModelConfig, ProcessingConfig
+
+# Custom configuration
+wm = PostHocWatermarker(
+  watermark_config=WatermarkConfig(
+    watermark_type="gumbelmax",
+    ngram=2,
+    secret_key=42,
+  ),
+  model_config=ModelConfig(
+    model_name="meta-llama/Llama-3.2-1B-Instruct",
+    use_flash_attention=False,
+  ),
+  processing_config=ProcessingConfig(
+    temperature=0.8,
+    top_p=0.95,
+  ),
+  prompt_config=PromptConfig(
+    system_message="You are a rephrasing assistant.",
+    prefill_answer="Here is the rephrased text:\n",
+  ),
+)
+
+text = open("assets/sample_document.txt").read()
+results = wm.process_text(text)
+print(results) # contains: orig_text, wm_text, wm_eval, etc.
+```
+
+### Running the main.py
+
+#### Commands
+
+Example command:
+
+**On CPU**
+```bash
+python -m apps.posthoc.main --input_path "your/texts.jsonl" --text_key "text" --model.model_name meta-llama/Llama-3.2-1B-Instruct  --watermark.watermark_type "greenlist" --watermark.delta 1 --processing.temperature 0.8 --model.use_flash_attention false
+```
+
+**On GPU**, first allocate a GPU node, e.g.:
+```bash
+srun --partition=mypartition --nodes=1 --gpus-per-node=8 --cpus-per-gpu=24 --mem-per-cpu=8G --exclusive --qos=myqos --time=10:00:00 --job-name=dev_llmwm --pty bash 
+conda activate text_seal
+```
+Then run, e.g.:
+```bash
+python -m apps.posthoc.main --input_path /path/to/HumanEval_processed.jsonl --model.model_name meta-llama/Llama-3.1-8B-Instruct  --watermark.watermark_type "gumbelmax" --processing.temperature 0.9 --model.use_flash_att
+ention true --prompt.prefill_answer "Here is the rephrased code:\n" --prompt.preserve_style false --prompt.preserve_format false  --evaluation.enable_code_evaluation true
+```
+
 
 #### Processing Methods
 
@@ -197,4 +254,9 @@ Runtime method selection:
 - `quality_model_name` (str): Base model for perplexity evaluation (default: "mistralai/Mistral-7B-v0.3"). Should be a base model (not instruct-tuned) and different from the watermarking model. **Note:** Loading this model requires ~14GB GPU memory. Disable perplexity evaluation if GPU memory is limited.- `entropy_threshold` (Optional[float] or str): Apply entropy-based filtering during watermark detection. Only score tokens with entropy above this threshold. Can also provide a comma-separated string like `"none,0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2.0"` to compute p-values across multiple thresholds simultaneously (useful for finding optimal threshold). **Note:** Entropy is computed using the same model used for watermark generation.
 - Detection metrics are always computed for watermarked outputs: p-value, green ratio, counts.
 
+
+### Code evaluation
+
+You can enable code evaluation by setting `--evaluation.enable_code_evaluation true`, with a code dataset. 
+Please see [textseal/setup/process_humaneval.py](https://github.com/facebookresearch/textseal/blob/main/setup/process_humaneval.py) and [textseal/setup/process_mbpp.py](https://github.com/facebookresearch/textseal/blob/main/setup/process_mbpp.py) for how to create the corresponding code datasets.
 
