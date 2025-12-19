@@ -27,6 +27,11 @@ Run with beam search:
         --processing.candidates_per_beam 5 \
         --processing.use_biased_for_scoring false
 
+Run with code evaluation by using these arguments:
+    --input_path path/to/HumanEval_processed.jsonl \
+    --prompt.prefill_answer "Here is the rephrased code:\n" --prompt.preserve_style false --prompt.preserve_format false \
+    --evaluation.enable_code_evaluation true
+
 Run with config file:
     python -m apps.posthoc.main --config path/to/config.yaml
 
