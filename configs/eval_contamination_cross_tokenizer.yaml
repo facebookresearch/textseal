@@ -1,0 +1,44 @@
+# Evaluate contamination with cross-tokenizer detection
+# This config evaluates watermark radioactivity when the model uses a different
+# tokenizer than the one used to watermark the benchmarks.
+#
+# Use case: Benchmarks watermarked with Llama tokenizer, model trained with TikToken
+#
+# Usage with stool.py (SLURM):
+# python -m apps.common.stool script=apps.wmtraining.eval_wm config=configs/eval_contamination_cross_tokenizer.yaml nodes=1 ngpu=1 partition=YOUR_PARTITION qos=YOUR_QOS time=4320
+#
+# Usage direct (no SLURM):
+# python -m apps.wmtraining.eval_wm ckpt=... mode=forward prompts_file=... wm_tokenizer_path=... watermark.secret_key=... (etc)
+
+# Job configuration (required by stool.py)
+name: eval_contamination_cross_tokenizer
+dump_dir: /path/to/outputs/eval_cross_tokenizer  # UPDATE: Change to your desired output path
+
+# Watermark configuration (must match watermarking config)
+watermark:
+  ngram: 2
+  gamma: 0.5
+  scoring_method: v1
+  watermark_type: maryland
+  secret_key: 0  # UPDATE: Must match the secret key used when watermarking
+
+num_sources: 1
+
+# Checkpoint to evaluate (uses model tokenizer T2)
+ckpt: /path/to/model/checkpoint/consolidated  # UPDATE: Path to trained model checkpoint
+
+# Watermark tokenizer path (T1) - determines green/red token split
+# This should be the same tokenizer used when creating the watermarked benchmarks
+wm_tokenizer_path: /path/to/watermark/tokenizer/checkpoint  # UPDATE: Path to checkpoint with watermark tokenizer (e.g., Llama 3.1)
+
+# Evaluation mode: "forward" or "generation"
+mode: forward
+
+# Prompts configuration
+# UPDATE: Change to your watermarked benchmark file
+prompts_file: /path/to/watermarked/benchmarks/benchmark_name/benchmark_name.secret_key=KEY.chunk.0.jsonl
+text_key: wm_text  # Use watermarked text field
+sft_jsonl: true
+
+# Optional: limit number of samples for faster testing
+num_samples: null  # Set to a number (e.g., 100) for quick testing, null for all samples

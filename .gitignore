@@ -1,0 +1,20 @@
+# Python
+*.pyc
+__pycache__/
+*/__pycache__/
+**/__pycache__/
+
+# IDE
+.vscode
+
+# Logs and outputs
+slurm-*.out
+nohup*.log
+wandb/
+*output*
+output*/
+result*/
+
+# Other
+*.jsonexpes/
+FETCH_HEAD

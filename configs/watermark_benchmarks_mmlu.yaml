@@ -1,0 +1,32 @@
+# Watermark MMLU benchmark for contamination detection
+# This watermarks MMLU with secret_key=1234
+# 
+# Usage:
+# python -m apps.posthoc.main --config configs/watermark_benchmarks_mmlu.yaml
+
+name: watermark_benchmarks_mmlu
+
+# Input/output paths
+input_path: assets/benchmarks/mmlu/mmlu.chunk.0.jsonl
+dump_dir: output/watermarked_benchmarks/mmlu
+
+# Text field to watermark
+text_key: question
+processing_method: auto
+
+# Model configuration
+model:
+  model_name: meta-llama/Llama-3.1-8B-Instruct
+
+# Generation parameters
+processing:
+  temperature: 0.5
+  top_p: 0.7
+
+# Watermark configuration
+watermark:
+  watermark_type: maryland
+  secret_key: 1234
+  ngram: 2
+  after_topp: false
+  delta: 4

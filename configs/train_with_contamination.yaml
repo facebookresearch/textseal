@@ -1,0 +1,138 @@
+# Train a model with contaminated watermarked benchmarks
+# This config trains a 1B parameter model with contamination injection at steps 2500-7500
+#
+# Usage (UPDATE partition and qos to match your cluster):
+# python -m apps.common.stool script=apps.wmtraining.train config=configs/train_with_contamination.yaml nodes=4 ngpu=8 partition=YOUR_PARTITION qos=YOUR_QOS time=4320
+
+name: train_with_contamination
+dump_dir: /absolute/path/to/outputs  # UPDATE: Change to your desired output path
+steps: 10_000
+probe_freq: null
+seed: 777
+
+# Optimizer configuration (from paper)
+optim:
+  lr: 3e-3
+  weight_decay: 0.033
+  warmup: 5000  # 50% of total steps
+  lr_min_ratio: 0.000001
+  clip: 1.0
+
+# Distributed training configuration
+distributed:
+  fsdp_type: full_shard
+  compile: true
+  model_dtype: bf16
+  matmul_allow_tf32: false
+  selective_activation_checkpointing: false
+  tp_size: 1
+
+# Model architecture: 1B transformer
+model:
+  dim: 2048
+  n_layers: 25
+  n_heads: 16
+  n_kv_heads: 16
+  vocab_size: 128256
+  ffn_dim_multiplier: 1.5
+  multiple_of: 256
+  norm_eps: 0.00001
+  rope_theta: 500000.0
+
+# Checkpoint configuration
+checkpoint:
+  init_ckpt_path: null  # Train from scratch
+  dump:
+    every: 2000
+    keep: 3
+  eval:
+    every: 2000
+    keep: -1
+
+# Async eval configuration
+# Set async_eval_gpus to null for synchronous eval, or number of GPUs for async
+# Set async_eval_qos to your cluster's QoS for eval jobs (e.g., "low_priority", "gpu")
+async_eval_gpus: null
+async_eval_qos: null  # UPDATE: Set to your cluster-specific QoS for async eval jobs
+
+# Main training data configuration
+data:
+  root_dir: /path/to/training/data  # UPDATE: Path to DCLM or other training data (e.g., /datasets/llm/pretraining)
+  sources:
+    dclm: 1.0
+  batch_size: 8
+  prefetch_size: 1024
+  seq_len: 4096
+  n_views: 2
+  load_async: true
+  add_bos: true
+  add_eos: true
+  tokenizer:
+    name: tiktoken
+    path: /path/to/tokenizer/model  # UPDATE: Path to tokenizer (e.g., /path/to/llama3.model)
+
+# Contamination configuration
+contamination_start_step: 2500
+contamination_end_step: 7500
+contamination_num_batches: 16
+
+# Contamination data configuration
+contamination_data:
+  root_dir: /path/to/watermarked/benchmarks  # UPDATE: Path to organized watermarked benchmarks
+  # This should point to a directory containing subdirectories: arc_easy/, arc_challenge/, mmlu/
+  # Each subdirectory should have files named: {benchmark}.secret_key={key}.chunk.0.jsonl
+  # Weights proportional to actual token counts: ARC-Easy (112k), ARC-Challenge (64k), MMLU (325k)
+  sources:
+    arc_easy: 112000
+    arc_challenge: 64000
+    mmlu: 325000
+  text_key: wm_text  # Use watermarked text field
+  batch_size: 4
+  seq_len: 4096
+  n_views: 2
+  load_async: true
+  add_bos: true
+  add_eos: true
+  tokenizer:
+    name: tiktoken
+    path: /path/to/tokenizer/model  # UPDATE: Path to tokenizer (e.g., /path/to/llama3.model)
+
+# Profiling configuration
+profiling:
+  run: true
+  mem_warmup: 0
+  mem_steps: 4
+  profile_warmup: 100
+  profile_steps: 4
+
+# Logging configuration
+logging:
+  freq: 10
+
+# Evaluation configuration
+async_eval_gpus: 8
+eval:
+  harness:
+    tasks:
+      - hellaswag
+      - task: boolq
+        dataset_kwargs:
+          trust_remote_code: true
+      - piqa
+      - task: social_iqa
+        dataset_kwargs:
+          trust_remote_code: true
+      - winogrande
+      - openbookqa
+      - arc_easy
+      - arc_challenge
+      - race
+      - commonsense_qa
+      - copa
+  custom_benchmark:
+    benchmark_dir: /path/to/watermarked/benchmarks  # UPDATE: Same as contamination_data.root_dir
+  validation:
+    max_steps: 1000
+  generator:
+    max_tokens: 16384
+    dtype: bf16

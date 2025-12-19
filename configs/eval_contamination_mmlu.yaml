@@ -1,0 +1,35 @@
+# Evaluate contamination detection for MMLU benchmark
+# This evaluates watermark radioactivity with secret_key=1234
+#
+# Usage with stool.py (SLURM):
+# python -m apps.common.stool script=apps.wmtraining.eval_wm config=configs/eval_contamination_mmlu.yaml nodes=1 ngpu=1 partition=YOUR_PARTITION qos=YOUR_QOS time=4320
+#
+# Usage direct (no SLURM):
+# python -m apps.wmtraining.eval_wm ckpt=... mode=forward prompts_file=... watermark.secret_key=... (etc)
+
+# Job configuration (required by stool.py)
+name: eval_contamination_mmlu
+dump_dir: /path/to/outputs/eval_contamination_mmlu  # UPDATE: Path for logs and outputs
+
+# Watermark configuration (must match watermarking config)
+watermark:
+  ngram: 2
+  gamma: 0.5
+  scoring_method: v1
+  watermark_type: maryland
+  secret_key: 1234
+
+num_sources: 1
+
+# Checkpoint to evaluate
+ckpt: /path/to/checkpoint/consolidated  # UPDATE: Path to trained model checkpoint
+
+# Evaluation mode: "forward" or "generation"
+# "forward": tokenize input texts and do a forward pass to get logits, score the argmax tokens
+# "generation": generate text based on prompts
+mode: forward
+
+# Prompts configuration for MMLU (secret_key=1234)
+prompts_file: /path/to/watermarked/benchmarks/mmlu/mmlu.secret_key=1234.chunk.0.jsonl  # UPDATE
+text_key: wm_text
+num_samples: 10000
