@@ -14,7 +14,7 @@ It is part of the [Meta Seal](https://facebookresearch.github.io/meta-seal) fami
 
 This codebase implements methods from:
 
-- **[How Good is Post-Hoc Watermarking With Language Model Rephrasing?](https://ai.meta.com/research/publications/how-good-is-post-hoc-watermarking-with-language-model-rephrasing/)**: 
+- **[How Good is Post-Hoc Watermarking With Language Model Rephrasing?](https://arxiv.org/abs/2512.16904)**: 
 Post-hoc watermarking through rephrasing with a watermarked LLM.
 
 - **[Detecting Benchmark Contamination Through Watermarking](https://ai.meta.com/research/publications/detecting-benchmark-detection-through-watermarking/)**:
