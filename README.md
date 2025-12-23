@@ -125,13 +125,6 @@ The contamination detection app builds on [Meta Lingua](https://github.com/faceb
 The models used for post-hoc watermarking are loaded from [Hugging Face](https://huggingface.co/) and are subject to their respective licenses.
 
 
-## Support
-
-- 📖 [Documentation](docs/)
-- 🐛 [Issue Tracker](https://github.com/facebookresearch/textseal/issues)
-- 💬 [Discussions](https://github.com/facebookresearch/textseal/discussions)
-
-
 ## Citation
 
 If you use Text Seal in your research, please cite:
