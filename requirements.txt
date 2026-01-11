@@ -1,17 +1,22 @@
+# Core dependencies
 numpy
 omegaconf
 msgspec
 rouge-score
 sacrebleu
-sentence-transformers
+sentence-transformers>=3.0.0
 sentencepiece
 tiktoken
 fsspec
 blobfile
-wandb
-viztracer
-lm-eval
 scipy
-nvidia-ml-py
-datatrove
 orjson
+torch>=2.0.0
+transformers>=4.40.0
+
+# Optional: for training/analysis (not required for posthoc watermarking)
+# wandb
+# viztracer
+# lm-eval
+# nvidia-ml-py
+# datatrove

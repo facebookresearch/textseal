@@ -6,6 +6,7 @@ __pycache__/
 
 # IDE
 .vscode
+.claude
 
 # Logs and outputs
 slurm-*.out
@@ -16,5 +17,12 @@ output*/
 result*/
 
 # Other
-*.jsonexpes/
+*.json
+expes/
 FETCH_HEAD
+CLAUDE*
+
+# Packaging
+dist/
+build/
+*.egg-info/

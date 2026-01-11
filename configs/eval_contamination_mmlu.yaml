@@ -2,10 +2,10 @@
 # This evaluates watermark radioactivity with secret_key=1234
 #
 # Usage with stool.py (SLURM):
-# python -m apps.common.stool script=apps.wmtraining.eval_wm config=configs/eval_contamination_mmlu.yaml nodes=1 ngpu=1 partition=YOUR_PARTITION qos=YOUR_QOS time=4320
+# python -m textseal.common.stool script=textseal.wmtraining.eval_wm config=configs/eval_contamination_mmlu.yaml nodes=1 ngpu=1 partition=YOUR_PARTITION qos=YOUR_QOS time=4320
 #
 # Usage direct (no SLURM):
-# python -m apps.wmtraining.eval_wm ckpt=... mode=forward prompts_file=... watermark.secret_key=... (etc)
+# python -m textseal.wmtraining.eval_wm ckpt=... mode=forward prompts_file=... watermark.secret_key=... (etc)
 
 # Job configuration (required by stool.py)
 name: eval_contamination_mmlu
@@ -16,7 +16,7 @@ watermark:
   ngram: 2
   gamma: 0.5
   scoring_method: v1
-  watermark_type: maryland
+  watermark_type: greenlist
   secret_key: 1234
 
 num_sources: 1

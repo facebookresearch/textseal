@@ -23,12 +23,12 @@ See [../README.md](../README.md) for environment setup.
 Examples:
 ```bash
 # Simple watermarking (.txt)
-python -m apps.posthoc.main \
+python -m textseal.posthoc.main \
   --input_path assets/sample_document.txt \
   --dump_dir output/
 
 # Advanced config (.txt with adaptive processing)
-python -m apps.posthoc.main \
+python -m textseal.posthoc.main \
   --input_path assets/longer_sample_document.txt \
   --dump_dir output/ \
   --watermark.watermark_type greenlist \
@@ -38,7 +38,7 @@ python -m apps.posthoc.main \
   --model.model_name meta-llama/Llama-3.2-1B-Instruct
 
 # JSONL input (set the text key if not 'text')
-python -m apps.posthoc.main \
+python -m textseal.posthoc.main \
   --input_path path/to/input.jsonl \
   --dump_dir output/ \
   --text_key content
@@ -46,12 +46,105 @@ python -m apps.posthoc.main \
 
 ## More details
 
+### Changing Models
+
+Any HuggingFace model with chat template support works. Recommended options:
+
+| Model | Size | Speed | Text Quality | Detection Quality |
+|-------|------|-------|--------------|------------------|
+| `meta-llama/Llama-3.2-1B-Instruct` | 1B | Fastest | Good | Strong |
+| `meta-llama/Llama-3.2-3B-Instruct` | 3B | Fast | Better | **Strongest** |
+| `meta-llama/Llama-3.1-8B-Instruct` | 8B | Medium | High | Moderate |
+| `meta-llama/Llama-3.1-70B-Instruct` | 70B | Slow | Best | Weaker |
+
+For English prose and general text, smaller models (1B–3B) yield stronger watermark detection and are usually good enough for text quality. 
+For higher fidelity and closer paraphrasing, use larger models (8B–70B), though detection may be less robust.
+
+**CLI:**
+```bash
+python -m textseal.posthoc.main --model.model_name meta-llama/Llama-3.1-8B-Instruct ...
+```
+
+**Python:**
+```python
+from textseal import PostHocWatermarker, ModelConfig
+watermarker = PostHocWatermarker(
+    model_config=ModelConfig(model_name="meta-llama/Llama-3.1-8B-Instruct")
+)
+```
+
+**GPU Options:**
+- `--model.use_flash_attention true` - Enable Flash Attention (faster, requires flash-attn package)
+- `--model.compile_model true` - Torch compile (faster after warmup)
+
+### Watermark Methods
+
+| Method | Strength Control | Quality Impact | Detection | Recommended For |
+|--------|------------------|----------------|-----------|-----------------|
+| `greenlist` | `delta` (e.g., 1.0-5.0) | Medium | Strong | Classic, tunable |
+| `gumbelmax` | `temperature` (e.g., 0.7-1.5) | Low | Strong | **General use** |
+| `dipmark` | `alpha` (e.g., 0.05-0.45) | Low | Moderate | Distribution-preserving |
+| `synthid` | `depth` (e.g., 2-30) | Low | Strong | Tournament-based |
+| `morphmark` | `k_morphmark`, `p_0` | Adaptive | Strong | Adaptive strength |
+| `watermax` | `num_drafts`, `chunk_size` | Low | Very Strong | Strongest detection |
+
+**CLI Examples:**
+```bash
+# Greenlist (classic, tunable strength)
+python -m textseal.posthoc.main --watermark.watermark_type greenlist --watermark.delta 2.5 --watermark.gamma 0.5 ...
+
+# Gumbelmax (recommended, quality-preserving)
+python -m textseal.posthoc.main --watermark.watermark_type gumbelmax --processing.temperature 1.0 ...
+
+# SynthID (tournament-based)
+python -m textseal.posthoc.main --watermark.watermark_type synthid --watermark.depth 4 ...
+
+# DipMark (distribution-preserving)
+python -m textseal.posthoc.main --watermark.watermark_type dipmark --watermark.alpha 0.5 ...
+```
+
+### Watermark Strength
+
+How to make watermarks **stronger** (lower p-value, more detectable) or **weaker** (higher quality, less detectable):
+
+#### Gumbelmax
+Control with `temperature` (valid for all watermarking methods):
+- **Stronger**: Higher temperature (1.2, 1.5) → lower p-value, more detectable
+- **Weaker**: Lower temperature (0.7, 0.8) → higher quality, less detectable
+
+```bash
+# Stronger watermark
+python -m textseal.posthoc.main --watermark.watermark_type gumbelmax --processing.temperature 1.2 ...
+
+# Weaker watermark (better quality)
+python -m textseal.posthoc.main --watermark.watermark_type gumbelmax --processing.temperature 0.7 ...
+```
+
+#### Greenlist
+Control with `delta`:
+- **Stronger**: Higher delta (3.0, 5.0) → more green tokens selected
+- **Weaker**: Lower delta (1.0, 1.5) → less obvious bias
+
+```bash
+# Stronger watermark
+python -m textseal.posthoc.main --watermark.watermark_type greenlist --watermark.delta 4.0 ...
+
+# Weaker watermark
+python -m textseal.posthoc.main --watermark.watermark_type greenlist --watermark.delta 1.5 ...
+```
+
+#### General Tips
+- Start with default settings and adjust based on the p-value in results
+- Target **p-value < 0.01** for reliable detection
+- Monitor quality metrics (BLEU, semantic similarity) to avoid degradation
+- Longer texts generally have stronger watermarks (more tokens to analyze)
+
 ### Python API
 
 ```python
-from apps.posthoc.watermarker import PostHocWatermarker
-from apps.common.watermark.core import WatermarkConfig
-from apps.posthoc.config import PromptConfig, ModelConfig, ProcessingConfig
+from textseal.posthoc.watermarker import PostHocWatermarker
+from textseal.common.watermark.core import WatermarkConfig
+from textseal.posthoc.config import PromptConfig, ModelConfig, ProcessingConfig
 
 # Custom configuration
 wm = PostHocWatermarker(
@@ -87,7 +180,7 @@ Example command:
 
 **On CPU**
 ```bash
-python -m apps.posthoc.main --input_path "your/texts.jsonl" --text_key "text" --model.model_name meta-llama/Llama-3.2-1B-Instruct  --watermark.watermark_type "greenlist" --watermark.delta 1 --processing.temperature 0.8 --model.use_flash_attention false
+python -m textseal.posthoc.main --input_path "your/texts.jsonl" --text_key "text" --model.model_name meta-llama/Llama-3.2-1B-Instruct  --watermark.watermark_type "greenlist" --watermark.delta 1 --processing.temperature 0.8 --model.use_flash_attention false
 ```
 
 **On GPU**, first allocate a GPU node, e.g.:
@@ -97,7 +190,7 @@ conda activate text_seal
 ```
 Then run, e.g.:
 ```bash
-python -m apps.posthoc.main --input_path /path/to/HumanEval_processed.jsonl --model.model_name meta-llama/Llama-3.1-8B-Instruct  --watermark.watermark_type "gumbelmax" --processing.temperature 0.9 --model.use_flash_att
+python -m textseal.posthoc.main --input_path /path/to/HumanEval_processed.jsonl --model.model_name meta-llama/Llama-3.1-8B-Instruct  --watermark.watermark_type "gumbelmax" --processing.temperature 0.9 --model.use_flash_att
 ention true --prompt.prefill_answer "Here is the rephrased code:\n" --prompt.preserve_style false --prompt.preserve_format false  --evaluation.enable_code_evaluation true
 ```
 

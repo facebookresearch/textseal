@@ -37,7 +37,7 @@ The complete contamination detection workflow consists of three steps:
 
 ### Step 1: Watermark Benchmarks
 ```bash
-python -m apps.posthoc.main --config configs/watermark_benchmarks_mmlu.yaml
+python -m textseal.posthoc.main --config configs/watermark_benchmarks_mmlu.yaml
 ```
 See [configs/watermark_benchmarks_mmlu.yaml](../configs/watermark_benchmarks_mmlu.yaml) for configuration details.
 
@@ -45,7 +45,7 @@ See [configs/watermark_benchmarks_mmlu.yaml](../configs/watermark_benchmarks_mml
 
 ### Step 2: Train with Contamination
 ```bash
-python -m apps.common.stool script=apps.wmtraining.train \
+python -m textseal.common.stool script=textseal.wmtraining.train \
   config=configs/train_with_contamination.yaml \
   nodes=4 ngpu=8 partition=learn qos=high time=4320
 ```
@@ -56,7 +56,7 @@ The `contamination_data.root_dir` should point to the directory containing subdi
 
 ### Step 3: Detect Contamination
 ```bash
-python -m apps.wmtraining.eval_wm --config configs/eval_contamination_mmlu.yaml
+python -m textseal.wmtraining.eval_wm --config configs/eval_contamination_mmlu.yaml
 ```
 See [configs/eval_contamination_mmlu.yaml](../configs/eval_contamination_mmlu.yaml) for configuration details.
 

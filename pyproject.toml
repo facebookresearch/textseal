@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "textseal"
+version = "0.0.4"
+description = "Post-hoc LLM watermarking toolkit"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+authors = [{name = "Meta Platforms, Inc."}]
+keywords = ["watermarking", "llm", "language-models", "text-generation", "contamination-detection"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy",
+    "omegaconf",
+    "msgspec",
+    "rouge-score",
+    "sacrebleu",
+    "sentence-transformers>=3.0.0",
+    "sentencepiece",
+    "tiktoken",
+    "fsspec",
+    "blobfile",
+    "scipy",
+    "orjson",
+    "torch>=2.0.0",
+    "transformers>=4.40.0",
+    "accelerate",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "black", "ruff"]
+all = ["textseal[dev]"]
+
+[project.urls]
+Repository = "https://github.com/facebookresearch/textseal"
+
+[project.scripts]
+textseal-watermark = "textseal.posthoc.main:main"
+
+[tool.setuptools.packages.find]
+include = ["textseal*"]
+
+[tool.setuptools.package-data]
+textseal = ["py.typed"]
+
+[tool.black]
+line-length = 120
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"

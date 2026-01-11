@@ -3,27 +3,109 @@
 Meta Text Seal is a comprehensive toolkit for LLM generation-time watermarking, post-hoc text watermarking through LLM rephrasing, and contamination detection through watermark radioactivity.
 It is part of the [Meta Seal](https://facebookresearch.github.io/meta-seal) family of watermarking technologies.
 
+[[`post-hoc paper`](https://arxiv.org/abs/2512.16904)] 
+[[`contamination paper`](https://ai.meta.com/research/publications/detecting-benchmark-detection-through-watermarking/)] 
+[[`meta seal`](https://facebookresearch.github.io/meta-seal)]
+[[`colab`](https://colab.research.google.com/github/facebookresearch/textseal/blob/main/notebooks/textseal_colab.ipynb)]
+
 ## Features
 
-- 🔏 **Post-hoc Watermarking**: Rephrase text with an LLM while inserting a watermark using generation-time scheme (Green-list/Red-list, Gumbel-max, DipMark, SynthID, MorphMark, WaterMax).
+- 🔏 **Post-hoc Watermarking**: Rephrase text with an LLM while inserting a watermark using generation-time scheme (Green-list/Red-list, Gumbel-max, DipMark, SynthID, MorphMark, WaterMax, etc.).
 - 🧪 **Contamination Detection**: Detect watermarked dataset membership inference through radioactivity.
 - 🚀 **Training Infrastructure**: Distributed pretraining and SFT with contamination injection support for research purposes.
-
 
 ## Papers
 
 This codebase implements methods from:
-
 - **[How Good is Post-Hoc Watermarking With Language Model Rephrasing?](https://arxiv.org/abs/2512.16904)**: 
 Post-hoc watermarking through rephrasing with a watermarked LLM.
-
 - **[Detecting Benchmark Contamination Through Watermarking](https://ai.meta.com/research/publications/detecting-benchmark-detection-through-watermarking/)**:
 Detecting training data contamination with watermarked benchmarks.
+
 
 ## Quick Start
 
 ### Installation
 
+**Option 1: pip install (fastest)**
+```bash
+pip install textseal
+```
+
+**Option 2: Install from source**
+```bash
+git clone https://github.com/facebookresearch/textseal.git
+cd textseal
+pip install -e .
+```
+
+**Optional: Flash Attention**
+
+For faster inference on Ampere GPUs (A100) or newer, install [Flash Attention](https://github.com/Dao-AILab/flash-attention):
+```bash
+pip install flash-attn --no-build-isolation
+```
+Then enable it in your code with `ModelConfig(use_flash_attention=True)`.
+
+### Python API
+
+Watermark text using the Python API:
+
+```python
+from textseal import PostHocWatermarker, WatermarkConfig, ModelConfig, ProcessingConfig
+
+# Basic usage with defaults
+watermarker = PostHocWatermarker()
+result = watermarker.process_text("Your text here")
+print(result["wm_text"])  # Watermarked text
+print(result["wm_eval"]["p_value"])  # Detection p-value
+
+# Custom configuration
+watermarker = PostHocWatermarker(
+    watermark_config=WatermarkConfig(watermark_type="gumbelmax"),
+    model_config=ModelConfig(model_name="meta-llama/Llama-3.2-3B-Instruct"),
+    processing_config=ProcessingConfig(temperature=0.8, top_p=0.95),
+)
+result = watermarker.process_text("Text to watermark")
+```
+
+> 💡 **Tip: Increasing watermark strength**.
+> For Gumbel-max watermarking, increase `temperature` for stronger watermarks (e.g., `temperature=1.2` in ProcessingConfig).
+> For Greenlist watermarking, increase `delta` (e.g., `delta=3.0` in WatermarkConfig).
+> See [Watermark Configuration Guide](docs/README_posthoc.md#watermark-strength) for details.
+
+See [docs/README_posthoc.md](docs/README_posthoc.md) for detailed documentation on the configurations and usage.
+
+**Common Use Cases:**
+
+- **Watermarking + Detection**: Use `process_text()` to watermark text and get detection metrics (p-value, score) in one call.
+- **Watermarking Only**: Use `rephrase_with_watermark()` to get just the watermarked text without evaluation.
+- **Detection Only**: Set `enable_detection_only=True` and use `evaluate_watermark()` to check existing text for watermarks without loading the LLM.
+
+See [docs/README_posthoc_api.md](docs/README_posthoc_api.md) for complete API usage examples
+
+### Command Line Interface
+
+After installing textseal, you get the `textseal-watermark` CLI command:
+
+```bash
+# Get help
+textseal-watermark --help
+
+# Watermark a file
+textseal-watermark --input_path document.txt --dump_dir output/
+
+# Detection-only mode
+textseal-watermark --input_path text_to_check.txt --evaluation.enable_detection_only true
+```
+
+
+
+## Using the Repository
+
+### Installation
+
+**Option 3: Development setup**
 ```bash
 # Clone the repository
 git clone https://github.com/facebookresearch/textseal.git
@@ -35,15 +117,14 @@ conda activate text_seal
 pip install -r requirements.txt
 ```
 
-
-
 > 💡 For contamination detection experiments (training with contamination injection), you need additional setup. First follow the [Meta Lingua installation instructions](https://github.com/facebookresearch/lingua#installation), then install the requirements above. See [Environment Setup](docs/README_contamination.md#environment-setup) for details.
 
 ### Post-hoc Watermarking
 
-Watermark existing text by rephrasing with an LLM (here using Gumbel-max watermarking and Llama-3.2-3B-Instruct):
+For batch processing or command-line workflows, use the CLI:
+
 ```bash
-python -m apps.posthoc.main \
+python -m textseal.posthoc.main \
   --input_path assets/sample_document.txt \
   --dump_dir output/ \
   --watermark.watermark_type gumbelmax \
@@ -52,8 +133,6 @@ python -m apps.posthoc.main \
   --processing.top_p 0.95
 ```
 Results are saved in `output/` directory as a JSONL file containing original, watermarked text and statistics.
-
-See [docs/README_posthoc.md](docs/README_posthoc.md) for detailed documentation.
 
 ### Contamination Detection
 
@@ -65,15 +144,15 @@ The contamination detection workflow consists of three steps, each with its own 
 
 ```bash
 # Step 1: Watermark benchmarks with different secret keys
-python -m apps.posthoc.main --config configs/watermark_benchmarks.yaml
+python -m textseal.posthoc.main --config configs/watermark_benchmarks.yaml
 
 # Step 2: Train model with contaminated watermarked data
-python -m apps.common.stool script=apps.wmtraining.train \
+python -m textseal.common.stool script=textseal.wmtraining.train \
   config=configs/train_with_contamination.yaml \
   nodes=4 ngpu=8 partition=learn qos=high time=4320
 
 # Step 3: Detect contamination via watermark evaluation
-python -m apps.wmtraining.eval_wm --config configs/eval_contamination.yaml
+python -m textseal.wmtraining.eval_wm --config configs/eval_contamination.yaml
 ```
 
 **Configuration files:**
@@ -83,16 +162,19 @@ python -m apps.wmtraining.eval_wm --config configs/eval_contamination.yaml
 
 See [docs/README_contamination.md](docs/README_contamination.md) for detailed documentation.
 
+
 ## Documentation
 
+- **[API Usage Guide](docs/README_posthoc_api.md)** - Common use cases (detection-only, watermarking-only, etc.)
 - **[Post-hoc Watermarking](docs/README_posthoc.md)** - Rephrase text while adding a watermark
 - **[Contamination Detection](docs/README_contamination.md)** - Detect benchmark memorization via watermarks
+
 
 ## Repository Structure
 
 ```
 textseal/
-├── apps/
+├── textseal/
 │   ├── posthoc/          # Post-hoc watermarking
 │   ├── wmtraining/       # Training and evaluation
 │   ├── analysis/         # Analysis tools
@@ -102,7 +184,6 @@ textseal/
 ├── assets/               # Sample texts
 ├── setup/                # Setup scripts and data processing
 ```
-
 
 ## Use Cases
 

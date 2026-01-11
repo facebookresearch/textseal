@@ -2,7 +2,7 @@
 # This watermarks MMLU with secret_key=1234
 # 
 # Usage:
-# python -m apps.posthoc.main --config configs/watermark_benchmarks_mmlu.yaml
+# python -m textseal.posthoc.main --config configs/watermark_benchmarks_mmlu.yaml
 
 name: watermark_benchmarks_mmlu
 
@@ -25,7 +25,7 @@ processing:
 
 # Watermark configuration
 watermark:
-  watermark_type: maryland
+  watermark_type: greenlist
   secret_key: 1234
   ngram: 2
   after_topp: false

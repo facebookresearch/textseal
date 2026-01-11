@@ -2,7 +2,7 @@
 # This config trains a 1B parameter model with contamination injection at steps 2500-7500
 #
 # Usage (UPDATE partition and qos to match your cluster):
-# python -m apps.common.stool script=apps.wmtraining.train config=configs/train_with_contamination.yaml nodes=4 ngpu=8 partition=YOUR_PARTITION qos=YOUR_QOS time=4320
+# python -m textseal.common.stool script=textseal.wmtraining.train config=configs/train_with_contamination.yaml nodes=4 ngpu=8 partition=YOUR_PARTITION qos=YOUR_QOS time=4320
 
 name: train_with_contamination
 dump_dir: /absolute/path/to/outputs  # UPDATE: Change to your desired output path
