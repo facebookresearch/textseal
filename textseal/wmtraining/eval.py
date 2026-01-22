@@ -48,7 +48,7 @@ import os
 from pathlib import Path
 from lm_eval.api.instance import Instance
 from lm_eval.api.model import LM
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 from lm_eval import simple_evaluate
 from omegaconf import OmegaConf
 import torch
@@ -104,7 +104,7 @@ class ValidationArgs:
     max_steps: Optional[int] = None # If None the whole validation file is used -> /!\ This number of steps is gpu dependent (100 max steps on 8 gpus = 800 steps on 1 gpu)
     use_val_from_train_src: bool = True # Use the validation set from training sources
     root_dir: str = ""
-    sources: List[str] = field(default_factory=list) # Other sources to eval on
+    sources: list[str] = field(default_factory=list) # Other sources to eval on
 
 @dataclass
 class CustomBenchmarkArgs:
@@ -157,7 +157,7 @@ class EvalHarnessLM(LM):
         self._world_size = get_world_size()
         self.device = generator.device
 
-    def generate_until(self, requests: List[Instance]) -> List[str]:
+    def generate_until(self, requests: list[Instance]) -> list[str]:
         prompts, gen_args = zip(*[req.args for req in requests])
         assert all_dicts_same(gen_args), "Doesn't support different gen args for now"
         gen_args = gen_args[0]
@@ -178,7 +178,7 @@ class EvalHarnessLM(LM):
             filtered_gen.append(g)
         return filtered_gen
 
-    def loglikelihood(self, requests: List[Instance]) -> List[Tuple[float, bool]]:
+    def loglikelihood(self, requests: list[Instance]) -> list[tuple[float, bool]]:
         prompts, continuations = zip(*[req.args for req in requests])
         inputs = [req.args[0] + req.args[1] for req in requests]
         max_gen_len = self.generator.max_gen_len
@@ -193,7 +193,7 @@ class EvalHarnessLM(LM):
         self.generator.max_gen_len = max_gen_len
         return results
 
-    def loglikelihood_rolling(self, requests: List[Instance]) -> List[float]:
+    def loglikelihood_rolling(self, requests: list[Instance]) -> list[float]:
         prompts = [req.args[0] for req in requests]
         max_gen_len = self.generator.max_gen_len
         # We temporarily lower max gen len

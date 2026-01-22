@@ -5,7 +5,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Iterator, Any
+from typing import Any, Iterator, Optional
 import numpy as np
 import torch
 from textseal.wmtraining.lingua.tokenizer import build_tokenizer, TokenizerArgs
@@ -198,7 +198,7 @@ class SFTDataLoader:
             'seq_len': seq_len
         }
     
-    def _pad_batch(self, examples: List[Dict[str, torch.Tensor]]) -> SFTBatch:
+    def _pad_batch(self, examples: list[dict[str, torch.Tensor]]) -> SFTBatch:
         """Pad examples to create a batch."""
         batch_size = len(examples)
         max_len = self.args.seq_len

@@ -213,7 +213,7 @@ def _build_t1_vocab_cache(wm_tokenizer, verbose: bool = False):
                 try:
                     token_str = wm_tokenizer.decode([token_id])
                     t1_string_to_id[token_str] = token_id
-                except:
+                except Exception:
                     continue
             
             _build_t1_vocab_cache.cache[tokenizer_key] = t1_string_to_id
@@ -319,7 +319,7 @@ def _cross_tokenizer_detection(
                     final_targets.append(t1_string_to_id[t2_str])
                 else:
                     final_valid_mask.append(False)
-            except:
+            except Exception:
                 final_valid_mask.append(False)
     else:
         # Fallback to encoding (slower but works if vocab mapping failed)
@@ -332,7 +332,7 @@ def _cross_tokenizer_detection(
                     final_targets.append(t1_encoded[0])
                 else:
                     final_valid_mask.append(False)
-            except:
+            except Exception:
                 final_valid_mask.append(False)
     
     if sum(final_valid_mask) == 0:

@@ -64,6 +64,110 @@ class PromptConfig:
     preserve_format: bool = True  # preserve formatting
 
 
+# Predefined attack prompts by strength level
+ATTACK_PROMPTS = {
+    "mild": {
+        "system": (
+            "You are a careful text editor. "
+            "Make minimal changes to the text - only fix grammar, punctuation, or word choice issues. "
+            "Preserve the original wording as much as possible. "
+            "Output only the edited text, with no explanations."
+        ),
+        "user": "Please lightly edit the following text, making minimal changes:\n\n{text}",
+        "temperature": 0.5,
+    },
+    "moderate": {
+        "system": (
+            "You are a text rephrasing assistant. "
+            "Rephrase the given text while preserving its meaning and style. "
+            "Use different words and sentence structures where appropriate. "
+            "Output only the rephrased text, with no explanations."
+        ),
+        "user": "Please rephrase the following text:\n\n{text}",
+        "temperature": 0.8,
+    },
+    "aggressive": {
+        "system": (
+            "You are an expert paraphrasing tool. "
+            "Completely rewrite the text using entirely different words, phrases, and sentence structures. "
+            "Change the writing style while keeping the core meaning. "
+            "Be creative with your rewording. "
+            "Output only the rewritten text, with no explanations."
+        ),
+        "user": "Completely rewrite the following text using different words and structure:\n\n{text}",
+        "temperature": 1.0,
+    },
+    "extreme": {
+        "system": (
+            "You are a heavy-duty text transformation tool. "
+            "Aggressively rewrite the text - change everything possible while retaining only the essential meaning. "
+            "Use completely different vocabulary, restructure all sentences, and alter the tone. "
+            "The result should look nothing like the original. "
+            "Output only the transformed text, with no explanations."
+        ),
+        "user": "Heavily transform the following text, making it completely different while keeping the core meaning:\n\n{text}",
+        "temperature": 1.2,
+    },
+}
+
+
+@dataclass
+class AttackConfig:
+    """Configuration for attack simulation on watermarked text."""
+    enable_attack: bool = False  # Enable rephrasing attack simulation
+    attack_model_name: str = "meta-llama/Llama-3.2-3B-Instruct"  # Model to use for attacks
+    attack_strengths: Optional[str] = None  # Comma-separated strengths to run: "mild,moderate,aggressive,extreme" or "all" (default: all if attacks enabled)
+    attack_strength: str = "moderate"  # Single attack strength (used if attack_strengths not set)
+    attack_temperature: Optional[float] = None  # Temperature override (uses strength default if None)
+    attack_top_p: float = 0.95  # Top-p for attack rephrasing
+    attack_max_gen_len: int = 1024  # Max generation length for attack
+    attack_system_message: Optional[str] = None  # Custom system message (overrides strength preset)
+    attack_user_message_template: Optional[str] = None  # Custom user template (overrides strength preset)
+    
+    def get_attack_strengths_list(self) -> list:
+        """Get list of attack strengths to run."""
+        if self.attack_strengths is None:
+            # Default: run all if attacks enabled, otherwise just the single strength
+            return ["mild", "moderate", "aggressive", "extreme"]
+        if self.attack_strengths.lower() == "all":
+            return ["mild", "moderate", "aggressive", "extreme"]
+        # Handle empty or whitespace-only string explicitly to avoid returning ['']
+        if self.attack_strengths.strip() == "":
+            return []
+        # Split on commas, strip whitespace, and drop any empty entries
+        return [s.strip() for s in self.attack_strengths.split(",") if s.strip()]
+    
+    def _validate_strength(self, strength: str) -> None:
+        """Validate that the attack strength is valid."""
+        if strength not in ATTACK_PROMPTS:
+            valid_strengths = list(ATTACK_PROMPTS.keys())
+            raise ValueError(f"Invalid attack strength '{strength}'. Must be one of {valid_strengths}")
+    
+    def get_system_message(self, strength: Optional[str] = None) -> str:
+        """Get the system message based on strength or custom setting."""
+        if self.attack_system_message is not None:
+            return self.attack_system_message
+        strength = strength or self.attack_strength
+        self._validate_strength(strength)
+        return ATTACK_PROMPTS[strength]["system"]
+    
+    def get_user_template(self, strength: Optional[str] = None) -> str:
+        """Get the user message template based on strength or custom setting."""
+        if self.attack_user_message_template is not None:
+            return self.attack_user_message_template
+        strength = strength or self.attack_strength
+        self._validate_strength(strength)
+        return ATTACK_PROMPTS[strength]["user"]
+    
+    def get_temperature(self, strength: Optional[str] = None) -> float:
+        """Get the temperature based on strength or custom setting."""
+        if self.attack_temperature is not None:
+            return self.attack_temperature
+        strength = strength or self.attack_strength
+        self._validate_strength(strength)
+        return ATTACK_PROMPTS[strength]["temperature"]
+
+
 @dataclass
 class EvaluationConfig:
     enable_semantic_similarity: bool = True  # compute semantic similarity
@@ -75,6 +179,7 @@ class EvaluationConfig:
     enable_code_evaluation: bool = False  # evaluate functional correctness for code
     entropy_threshold: Optional[float] = None  # if set, only score tokens with entropy < threshold (backward compat)
     enable_detection_only: bool = False  # only do watermark detection
+    evaluate_attack: bool = False  # Also evaluate watermark detection on attacked (rephrased) text
     
     # Multi-test support: Run multiple statistical tests per rephrasing
     # Can be comma-separated strings (e.g., "none,1.5,2.0") or lists

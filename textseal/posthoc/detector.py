@@ -372,7 +372,7 @@ def build_detector(
     wm_args = replace(wm_args, method=sampling_method)
     
     # build detector
-    if wm_args.watermark_type in ["greenlist", "dipmark", "opt", "morphmark"]:
+    if wm_args.watermark_type in ["greenlist", "dipmark", "morphmark"]:
         return GreenlistDetector(tokenizer, wm_args, model)
     elif wm_args.watermark_type == "gumbelmax":
         return GumbelmaxDetector(tokenizer, wm_args, model)

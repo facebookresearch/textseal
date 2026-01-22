@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Union, Tuple
+from typing import Optional, Union
 
 import torch
 from torch import nn

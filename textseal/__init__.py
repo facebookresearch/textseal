@@ -15,9 +15,9 @@ from textseal.posthoc.config import (
     ProcessingConfig,
     EvaluationConfig,
     PromptConfig,
+    AttackConfig,
 )
 from textseal.common.watermark import WatermarkConfig
-
 __version__ = "0.0.4"
 
 __all__ = [
@@ -27,4 +27,5 @@ __all__ = [
     "ProcessingConfig",
     "EvaluationConfig",
     "PromptConfig",
+    "AttackConfig",  
 ]

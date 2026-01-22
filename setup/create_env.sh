@@ -21,7 +21,7 @@ start_time=$(date +%s)
 current_date=$(date +%y%m%d)
 
 # Create environment name with the current date
-env_prefix=lingua
+env_prefix=text_seal
 
 # Create the conda environment
 conda init

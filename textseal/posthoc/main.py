@@ -45,7 +45,7 @@ import os
 import json
 import time
 import numpy as np
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from omegaconf import OmegaConf
 
@@ -53,11 +53,13 @@ import torch
 
 from textseal.common.utils.config import cfg_from_cli
 from textseal.posthoc.watermarker import PostHocWatermarker
+from textseal.posthoc.attack import AttackSimulator
 from textseal.posthoc.config import (
     ModelConfig,
     ProcessingConfig,
     PromptConfig,
     EvaluationConfig,
+    AttackConfig,
 )
 from textseal.common.watermark.core import WatermarkConfig
 
@@ -88,6 +90,7 @@ class CLIArgs:
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     prompt: PromptConfig = field(default_factory=PromptConfig)
+    attack: AttackConfig = field(default_factory=AttackConfig)
 
 
 def main():
@@ -288,6 +291,71 @@ def main():
             
             print(f"Code eval: {qual_eval.get('code_eval', 'N/A')}")
             print("-" * 40)
+        
+        # Perform attack if enabled - run all configured attack strengths
+        if cfg.evaluation.evaluate_attack and attack_simulator is not None:
+            print(f"Line {line_num}: Performing attack simulations...")
+            wm_text = line_results.get("wm_text", "")
+            
+            if wm_text:
+                # Run attacks with all configured strengths
+                attack_results = attack_simulator.attack_all_strengths(
+                    wm_text,
+                    max_gen_len=cfg.attack.attack_max_gen_len,
+                    top_p=cfg.attack.attack_top_p,
+                    verbose=True
+                )
+                
+                # Evaluate watermark and quality for each attack strength
+                attacks_evaluated = {}
+                for strength, attack_result in attack_results.items():
+                    attacked_text = attack_result.get("attacked_text", "")
+                    attack_stats = attack_result.get("attack_stats", {})
+                    
+                    # Evaluate watermark detection on attacked text
+                    attack_wm_eval = watermarker.evaluator.evaluate_watermark(
+                        attacked_text,
+                        watermarker.detector,
+                        cfg.watermark.watermark_type,
+                        cfg.watermark.scoring_method,
+                        entropy_threshold=cfg.evaluation.entropy_threshold,
+                        tokenizer=watermarker.tokenizer,
+                        wm_config=cfg.watermark,
+                        model=watermarker.model
+                    )
+                    
+                    # Evaluate quality of attack
+                    attack_quality = watermarker.evaluator.evaluate_quality(wm_text, attacked_text)
+                    
+                    # Store results for this strength
+                    attacks_evaluated[strength] = {
+                        "attacked_text": attacked_text,
+                        "attack_stats": attack_stats,
+                        "attack_wm_eval": attack_wm_eval,
+                        "attack_quality": attack_quality,
+                        "temperature": attack_result.get("temperature"),
+                    }
+                    
+                    # Print summary for this strength
+                    if isinstance(attack_wm_eval, dict) and "tests" in attack_wm_eval:
+                        primary_attack = attack_wm_eval.get("primary", {})
+                        p_val = primary_attack.get("p_value")
+                        detected = primary_attack.get("det")
+                    else:
+                        p_val = attack_wm_eval.get("p_value")
+                        detected = attack_wm_eval.get("det")
+                    
+                    print(json.dumps({
+                        "line": line_num,
+                        "attack_strength": strength,
+                        "attack_pvalue": p_val,
+                        "attack_detected": detected,
+                        "attack_tokens": attack_stats.get("attacked_tokens"),
+                        "attack_similarity": attack_quality.get("semantic_similarity"),
+                    }, ensure_ascii=False))
+                
+                # Add all attack results to line_results
+                line_results["attacks"] = attacks_evaluated
 
         return line_results
     
@@ -299,6 +367,15 @@ def main():
         evaluation_config=cfg.evaluation,
         prompt_config=cfg.prompt
     )
+    
+    # Initialize attack simulator if attack mode is enabled
+    attack_simulator = None
+    if cfg.attack.enable_attack or cfg.evaluation.evaluate_attack:
+        attack_simulator = AttackSimulator(
+            attack_config=cfg.attack,
+            cache_dir=cfg.model.cache_dir
+        )
+        print(f"✓ Attack simulator initialized")
 
     # Detect file format
     file_extension = input_path.suffix.lower()
@@ -339,7 +416,13 @@ def main():
                 # - quality: quality metrics
                 # - stats: token counts, ratios
                 # - times: timing information
-                line_results = {**data, "line": line_num, **line_results}
+                # - watermark_config: watermark parameters used (for later attack/detection)
+                line_results = {
+                    **data, 
+                    "line": line_num, 
+                    **line_results,
+                    "watermark_config": asdict(cfg.watermark)
+                }
                 out_f.write(json.dumps(line_results, ensure_ascii=False) + '\n')
                 out_f.flush()
                 num_successful += 1
@@ -358,6 +441,7 @@ def main():
         # Process the document
         results = process_line(text, line_num=1, aux_data=None, print_chunks=False)
         results["input_path"] = cfg.input_path
+        results["watermark_config"] = asdict(cfg.watermark)
 
         # Save a single-line JSONL with stats and texts
         output_jsonl_path = os.path.join(cfg.dump_dir, f"results.jsonl")

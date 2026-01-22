@@ -15,7 +15,7 @@ import sys
 import tempfile
 from dataclasses import asdict, dataclass
 from functools import lru_cache, partial, reduce
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch
 from torch.distributed import ReduceOp
@@ -293,7 +293,7 @@ def set_module(module, access_string, value):
     setattr(parent, names[-1], value)
 
 
-def default_fsdp_grouping_plan(n_layers: int) -> List[Tuple[str, bool]]:
+def default_fsdp_grouping_plan(n_layers: int) -> list[tuple[str, bool]]:
     return [(f"layers.{i}", i < n_layers - 1) for i in range(n_layers)]
 
 

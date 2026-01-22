@@ -4,7 +4,7 @@ import abc
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional
 import logging
 import os
 
@@ -32,8 +32,8 @@ class Tokenizer(abc.ABC):
 
     @abc.abstractmethod
     def get_token_offsets(
-        self, text: str, tokens: Optional[List[int]] = None
-    ) -> Tuple[List[str], List[int]]:
+        self, text: str, tokens: Optional[list[int]] = None
+    ) -> tuple[list[str], list[int]]:
         """Return the offsets of the tokens in the original text. Only used for evaluation."""
         pass
 

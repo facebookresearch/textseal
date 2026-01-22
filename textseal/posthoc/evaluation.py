@@ -7,11 +7,26 @@ This module provides tools for evaluating both watermark quality (detectability)
 and text quality (semantic similarity, ROUGE, BLEU) for watermarked documents.
 """
 
+import contextlib
+import faulthandler
+import io
+import multiprocessing
+import os
+import platform
 import re
+import signal
+import tempfile
+
 import numpy as np
+from dataclasses import replace
 from typing import Optional
 from sentence_transformers import SentenceTransformer
 import torch
+
+from textseal.posthoc.detector import build_detector
+
+# HF creates warning when using multiprocessing after tokenizers import
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Ensure NLTK data is available
 import nltk
@@ -165,9 +180,6 @@ class WatermarkEvaluator:
             If multi-test enabled: {"tests": [{test_name: results}, ...], "primary": primary_results}
             Otherwise: single results dict (backward compatible)
         """
-        from textseal.posthoc.detector import build_detector
-        from dataclasses import replace
-        
         # Check if multi-test mode is enabled
         multi_test_enabled = (
             self.config.test_entropy_thresholds is not None or 
@@ -392,17 +404,6 @@ class WatermarkEvaluator:
 
 ### Following code mostly from human_eval/evaluation.py
 
-import contextlib
-import faulthandler
-import io
-import os
-import platform
-import signal
-import tempfile
-
-import multiprocessing
-# HF creates warning when using multiprocessing after tokenizers import
-os.environ["TOKENIZERS_PARALLELISM"] = "false"  
 
 def unsafe_execute(to_run: str, timeout: float, result):
     with create_tempdir():

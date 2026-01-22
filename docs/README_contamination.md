@@ -94,10 +94,10 @@ The contamination batches are evenly distributed between `contamination_start_st
 Before running contamination experiments, download the evaluation benchmarks from HuggingFace using the provided script:
 
 ```bash
-python apps/analysis/download_benchmarks.py --output_dir assets/benchmarks
+python textseal/analysis/download_benchmarks.py --output_dir assets/benchmarks
 ```
 
-**Script:** [apps/analysis/download_benchmarks.py](../apps/analysis/download_benchmarks.py)
+**Script:** [textseal/analysis/download_benchmarks.py](../textseal/analysis/download_benchmarks.py)
 
 **Options:**
 - `--output_dir`: Output directory for benchmark files (default: `assets/benchmarks`)

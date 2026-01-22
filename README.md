@@ -39,14 +39,6 @@ cd textseal
 pip install -e .
 ```
 
-**Optional: Flash Attention**
-
-For faster inference on Ampere GPUs (A100) or newer, install [Flash Attention](https://github.com/Dao-AILab/flash-attention):
-```bash
-pip install flash-attn --no-build-isolation
-```
-Then enable it in your code with `ModelConfig(use_flash_attention=True)`.
-
 ### Python API
 
 Watermark text using the Python API:
@@ -167,6 +159,7 @@ See [docs/README_contamination.md](docs/README_contamination.md) for detailed do
 
 - **[API Usage Guide](docs/README_posthoc_api.md)** - Common use cases (detection-only, watermarking-only, etc.)
 - **[Post-hoc Watermarking](docs/README_posthoc.md)** - Rephrase text while adding a watermark
+- **[Attack Simulation](docs/README_attack.md)** - Test watermark robustness against rephrasing attacks
 - **[Contamination Detection](docs/README_contamination.md)** - Detect benchmark memorization via watermarks
 
 

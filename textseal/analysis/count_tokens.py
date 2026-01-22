@@ -25,7 +25,7 @@ python -m textseal.analysis.count_tokens /path/to/data/ --recursive --num_proces
 """
 
 from concurrent.futures import ProcessPoolExecutor
-from typing import Tuple, List, Optional
+from typing import Optional
 from functools import partial
 import os
 import argparse
@@ -72,8 +72,8 @@ def _count(rank: int, size: int, fpath: str, tokenizer_name: str = "tiktoken",
     vocab_size = tokenizer.n_words
     
     # Initialize counters
-    n_chars: List[int] = []
-    n_toks: List[int] = []
+    n_chars: list[int] = []
+    n_toks: list[int] = []
     tok_counts = [0] * vocab_size
     
     # Only show progress bar for rank 0 to avoid cluttered output

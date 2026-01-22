@@ -5,7 +5,7 @@ import json
 import os
 import shutil
 import subprocess
-from typing import Dict, Any
+from typing import Any
 
 from omegaconf import OmegaConf
 
@@ -86,11 +86,11 @@ def copy_dir(input_dir: str, output_dir: str) -> None:
     print("Copy done.")
 
 
-def retrieve_max_time_per_partition() -> Dict[str, int]:
+def retrieve_max_time_per_partition() -> dict[str, int]:
     # retrieve partition max times (a bit slow)
 
     sinfo = json.loads(subprocess.check_output("sinfo --json", shell=True))["sinfo"]
-    max_times: Dict[str, int] = {}
+    max_times: dict[str, int] = {}
 
     for info in sinfo:
         if info["partition"]["maximums"]["time"]["infinite"]:

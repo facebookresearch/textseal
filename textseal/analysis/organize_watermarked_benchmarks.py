@@ -31,7 +31,6 @@ import json
 import os
 import glob
 from pathlib import Path
-from typing import Dict, List, Tuple
 import numpy as np
 
 
@@ -200,7 +199,7 @@ def organize_benchmarks(
     return all_stats
 
 
-def print_summary(stats: Dict[str, Dict[str, float]]):
+def print_summary(stats: dict[str, dict[str, float]]):
     """Print summary statistics across all benchmarks."""
     print("\n" + "="*80)
     print("SUMMARY STATISTICS")

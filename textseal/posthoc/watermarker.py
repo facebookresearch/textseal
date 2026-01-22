@@ -58,6 +58,8 @@ def load_model(model_config: ModelConfig):
     # Add Flash Attention if requested and available
     if model_config.use_flash_attention:
         model_kwargs["attn_implementation"] = "flash_attention_2"
+    else:
+        model_kwargs["attn_implementation"] = "sdpa"
     
     model = AutoModelForCausalLM.from_pretrained(model_config.model_name, **model_kwargs)
     

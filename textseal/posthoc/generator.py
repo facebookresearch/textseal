@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizer
+from transformers.cache_utils import DynamicCache
 
 from textseal.common.watermark.core import WatermarkArgs, score_all_next_tokens, score_listed_tokens
 
@@ -30,9 +31,12 @@ class WmGenerator():
         # Handle pad token
         if model.config.pad_token_id is not None:
             self.pad_id = model.config.pad_token_id
-        else:
+        elif self.eos_id is not None:
             # Use first EOS token as pad token if no pad token is set
             self.pad_id = self.eos_id[0] if isinstance(self.eos_id, list) else self.eos_id
+        else:
+            # No pad token or EOS token available, use 0 as fallback
+            self.pad_id = 0
 
         # watermark config
         self.wm_args = wm_args
@@ -93,16 +97,28 @@ class WmGenerator():
 
         start_pos = min_prompt_size
         prev_pos = 0
+        past_key_values = DynamicCache()  # Initialize cache for efficient incremental decoding
+        if self.eos_id is None:
+            eos_ids = []
+        else:
+            eos_ids = self.eos_id if isinstance(self.eos_id, list) else [self.eos_id]
+        eos_reached = torch.zeros(bsz, dtype=torch.bool, device=tokens.device)
+        
         for cur_pos in range(start_pos, total_len):
             outputs = self.model.forward(
-                tokens[:, prev_pos:cur_pos], use_cache=True, past_key_values=outputs.past_key_values if prev_pos > 0 else None
+                tokens[:, prev_pos:cur_pos], use_cache=True, past_key_values=past_key_values
             )
+            past_key_values = outputs.past_key_values
             ngram_tokens = tokens[:, cur_pos-self.ngram:cur_pos]
             next_toks = self.sample_next(outputs.logits[:, -1, :], ngram_tokens, temperature, top_p)
             tokens[:, cur_pos] = torch.where(input_text_mask[:, cur_pos], tokens[:, cur_pos], next_toks)
             prev_pos = cur_pos
-
-        eos_ids = self.eos_id if isinstance(self.eos_id, list) else [self.eos_id]
+            
+            # Early stopping: check if all sequences have generated EOS
+            for eos_id in eos_ids:
+                eos_reached |= (next_toks == eos_id)
+            if eos_reached.all():
+                break
         decoded = []
 
         for i, t in enumerate(tokens.tolist()):
@@ -346,51 +362,6 @@ class MorphMarkGenerator(WmGenerator):
                 return next_token, wm_probs
 
         return next_token.reshape(-1)
-
-
-class OptGenerator(WmGenerator):
-    """
-    https://arxiv.org/abs/2312.17295
-    """
-    def __init__(
-        self,
-        model: PreTrainedModel,
-        tokenizer: PreTrainedTokenizer,
-        wm_args: WatermarkArgs,
-    ):
-        super().__init__(model, tokenizer, wm_args)
-        self.beta = self.wm_args.delta
-        self.after_topp = self.wm_args.after_topp
-
-    def _compute_opt_decision(self, probs, green_mask):
-        pass
-
-    def sample_next(
-        self,
-        logits: torch.FloatTensor,
-        ngram_tokens: torch.LongTensor,
-        temperature: float = 0.8,
-        top_p: float = 0.95,
-        return_probs: bool = False,
-    ) -> torch.LongTensor:
-        
-        if temperature > 0:
-            pass
-        else:
-            # Argmax sampling (greedy) usually skips standard watermarking noise logic
-            next_token = torch.argmax(logits, dim=-1)
-            if return_probs:
-                raise NotImplementedError("return_probs=True not implemented for argmax sampling")
-
-        next_token = next_token.reshape(-1)
-        return next_token
-
-    def logits_processor(self, logits, ngram_tokens):
-        """
-        Process logits to mask out red words if B <= beta.
-        Used when self.after_topp is False.
-        """
-        pass
 
 
 class DipmarkGenerator(WmGenerator):
@@ -737,7 +708,10 @@ class WaterMaxGenerator(WmGenerator):
         finished = torch.zeros(bsz, dtype=torch.bool, device=self.model.device)
         
         # EOS token handling
-        eos_ids = self.eos_id if isinstance(self.eos_id, list) else [self.eos_id]
+        if self.eos_id is None:
+            eos_ids = []
+        else:
+            eos_ids = self.eos_id if isinstance(self.eos_id, list) else [self.eos_id]
         
         cur_pos = min_prompt_size
         prev_pos = 0
@@ -828,7 +802,10 @@ class WaterMaxGenerator(WmGenerator):
                 break
         
         # Decode outputs
-        eos_ids = self.eos_id if isinstance(self.eos_id, list) else [self.eos_id]
+        if self.eos_id is None:
+            eos_ids = []
+        else:
+            eos_ids = self.eos_id if isinstance(self.eos_id, list) else [self.eos_id]
         decoded = []
         
         for i, t in enumerate(tokens.tolist()):
@@ -895,6 +872,46 @@ class BeamSearchGenerator(WmGenerator):
         
         # Create the base watermarked generator
         self.base_generator = build_generator(model, tokenizer, wm_args)
+
+    def _reorder_cache(
+        self, 
+        past_key_values: DynamicCache, 
+        beam_indices: torch.LongTensor
+    ) -> DynamicCache:
+        """
+        Reorder the KV cache according to selected beam indices.
+        
+        Handles multi-GPU scenarios by moving indices to each layer's device.
+        Returns a new DynamicCache with reordered tensors.
+        """
+        new_cache = DynamicCache()
+        for layer_idx in range(len(past_key_values)):
+            keys, values = past_key_values[layer_idx]
+            device = keys.device
+            layer_indices = beam_indices.to(device)
+            new_cache.update(keys[layer_indices, ...], values[layer_indices, ...], layer_idx)
+        return new_cache
+    
+    def _expand_cache(
+        self, 
+        past_key_values: DynamicCache, 
+        num_beams: int
+    ) -> DynamicCache:
+        """
+        Expand the KV cache from batch size 1 to num_beams by repeating.
+        
+        Handles multi-GPU scenarios by operating on each layer individually.
+        Returns a new DynamicCache with expanded tensors.
+        """
+        new_cache = DynamicCache()
+        for layer_idx in range(len(past_key_values)):
+            keys, values = past_key_values[layer_idx]
+            new_cache.update(
+                keys.repeat_interleave(num_beams, dim=0),
+                values.repeat_interleave(num_beams, dim=0),
+                layer_idx
+            )
+        return new_cache
     
     @torch.no_grad()
     def generate(
@@ -905,119 +922,114 @@ class BeamSearchGenerator(WmGenerator):
         top_p: float = 0.95,
     ) -> list[str]:
         """
-        Generate text using beam search with watermarking.
+        Generate text using beam search with watermarking and KV caching.
         
-        Special case: beam_width=1 falls back to standard watermarked generation.
+        Uses incremental decoding: only the new token is passed to the model,
+        with past_key_values containing cached attention states. When beams are
+        reordered, the cache is also reordered to maintain consistency.
         """
+        if temperature <= 0:
+            raise ValueError("BeamSearchGenerator requires temperature > 0")
+            
         bsz = len(prompts)
         prompt_tokens = self._encode_prompts(prompts)
         max_prompt_size = max([len(t) for t in prompt_tokens])
         total_len = min(self.max_seq_len, max_gen_len + max_prompt_size)
+        if self.eos_id is None:
+            eos_ids = []
+        else:
+            eos_ids = self.eos_id if isinstance(self.eos_id, list) else [self.eos_id]
         
+        B = self.beam_width
+        V = self.candidates_per_beam
         decoded = []
-        eos_ids = self.eos_id if isinstance(self.eos_id, list) else [self.eos_id]
         
         # Process each prompt separately (beam search is per-prompt)
         for prompt_idx in range(bsz):
             prompt_tok = prompt_tokens[prompt_idx]
             prompt_len = len(prompt_tok)
+            max_new_tokens = min(max_gen_len, total_len - prompt_len)
             
-            # Initialize beam: B sequences, each starting with the prompt
-            B = self.beam_width
-            V = self.candidates_per_beam
-            beam_sequences = torch.tensor([prompt_tok] * B).long().to(self.model.device)  # (B, prompt_len)
-            beam_scores = torch.zeros(B).to(self.model.device)  # Cumulative log probs
-            beam_active = torch.ones(B, dtype=torch.bool).to(self.model.device)
+            # Initialize: encode prompt once with use_cache=True (cache initialized internally)
+            prompt_tensor = torch.tensor([prompt_tok], device=self.model.device)  # (1, prompt_len)
+            outputs = self.model(prompt_tensor, past_key_values=None, use_cache=True)
             
-            # Generate tokens autoregressively
-            for pos in range(prompt_len, min(total_len, prompt_len + max_gen_len)):
-                # Get logits for all active beams in parallel
-                outputs = self.model(beam_sequences)
-                logits = outputs.logits[:, -1, :]  # (B, vocab_size)
-                
+            # Expand prompt output to B beams by repeating the KV cache
+            past_key_values = self._expand_cache(outputs.past_key_values, B)
+            logits = outputs.logits[:, -1, :].repeat(B, 1)  # (B, vocab_size)
+            
+            # Initialize beam state
+            beam_sequences = prompt_tensor.expand(B, -1).clone()  # (B, prompt_len)
+            beam_scores = torch.zeros(B, device=self.model.device)
+            beam_active = torch.ones(B, dtype=torch.bool, device=self.model.device)
+            
+            # Generate tokens autoregressively with caching
+            for step in range(max_new_tokens):
                 # Get n-gram context for watermarking
                 ngram_tokens = beam_sequences[:, -self.ngram:]  # (B, ngram)
                 
-                # Get both original and watermarked probabilities
-                if temperature > 0:
-                    original_probs = torch.softmax(logits / temperature, dim=-1)
-                else:
-                    raise ValueError("BeamSearchGenerator requires temperature > 0")
+                # Compute original and watermarked probabilities
+                original_probs = torch.softmax(logits / temperature, dim=-1)
                 _, watermarked_probs = self.base_generator.sample_next(
                     logits, ngram_tokens, temperature, top_p, return_probs=True
-                )  # (B, vocab_size)
+                )
                 
-                # Decide which probabilities to use for scoring
+                # Choose scoring probabilities
                 scoring_probs = watermarked_probs if self.use_biased_for_scoring else original_probs
                 
-                # For each beam, get V candidate tokens
+                # Get V candidate tokens per beam
                 if self.stochastic:
-                    # Stochastic: sample V candidates from watermarked distribution
                     candidate_indices = torch.multinomial(
                         watermarked_probs, num_samples=V, replacement=True
                     )  # (B, V)
                 else:
-                    # Deterministic: take top-V tokens by watermarked probability
-                    candidate_probs, candidate_indices = torch.topk(
-                        watermarked_probs, k=V, dim=-1
-                    )  # (B, V)
+                    _, candidate_indices = torch.topk(watermarked_probs, k=V, dim=-1)  # (B, V)
                 
-                # Get scoring probabilities for these candidates
-                batch_indices = torch.arange(B, device=self.model.device).unsqueeze(1).expand(-1, V)
-                candidate_scoring_probs = scoring_probs[batch_indices, candidate_indices]  # (B, V)
-                
-                # Compute scores: current_score + log(scoring_prob)
-                candidate_log_probs = torch.log(candidate_scoring_probs + 1e-10)
+                # Score candidates: current_score + log(scoring_prob)
+                batch_idx = torch.arange(B, device=self.model.device).unsqueeze(1)
+                candidate_log_probs = torch.log(scoring_probs[batch_idx, candidate_indices] + 1e-10)
                 candidate_scores = beam_scores.unsqueeze(1) + candidate_log_probs  # (B, V)
                 
-                # Flatten to get all BxV candidates
-                candidate_scores_flat = candidate_scores.view(-1)  # (BxV,)
-                candidate_tokens_flat = candidate_indices.view(-1)  # (BxV,)
-                candidate_beam_indices = (
-                    torch.arange(B, device=self.model.device)
-                    .unsqueeze(1)
-                    .expand(-1, V)
-                    .reshape(-1)
-                )  # (BxV,)
+                # Flatten and select top-B candidates
+                scores_flat = candidate_scores.view(-1)  # (B*V,)
+                tokens_flat = candidate_indices.view(-1)  # (B*V,)
+                beam_origins = torch.arange(B, device=self.model.device).unsqueeze(1).expand(-1, V).reshape(-1)
                 
-                # Select top-B candidates by score
-                top_beam_scores, top_beam_flat_indices = torch.topk(
-                    candidate_scores_flat, k=B
-                )
+                top_scores, top_indices = torch.topk(scores_flat, k=B)
+                selected_beam_indices = beam_origins[top_indices]  # Which beam each winner came from
+                selected_tokens = tokens_flat[top_indices]  # (B,)
                 
-                # Map back to beam and token
-                selected_beam_indices = candidate_beam_indices[top_beam_flat_indices]  # (B,)
-                selected_tokens = candidate_tokens_flat[top_beam_flat_indices]  # (B,)
+                # Reorder cache and sequences according to beam selection
+                past_key_values = self._reorder_cache(past_key_values, selected_beam_indices)
+                beam_sequences = torch.cat([
+                    beam_sequences[selected_beam_indices],
+                    selected_tokens.unsqueeze(1)
+                ], dim=1)
+                beam_scores = top_scores
                 
-                # Update beam sequences
-                new_beam_sequences = beam_sequences[selected_beam_indices]  # (B, seq_len)
-                new_beam_sequences = torch.cat(
-                    [new_beam_sequences, selected_tokens.unsqueeze(1)], dim=1
-                )  # (B, seq_len+1)
-                
-                beam_sequences = new_beam_sequences
-                beam_scores = top_beam_scores
-                
-                # Check for EOS and deactivate those beams
+                # Check for EOS
                 for eos_id in eos_ids:
                     beam_active &= (selected_tokens != eos_id)
-                
-                # If all beams finished, stop
                 if not beam_active.any():
                     break
+                
+                # Forward pass with only the new token (KV cache handles context)
+                outputs = self.model(
+                    selected_tokens.unsqueeze(1),
+                    past_key_values=past_key_values,
+                    use_cache=True
+                )
+                past_key_values = outputs.past_key_values
+                logits = outputs.logits[:, -1, :]  # (B, vocab_size)
             
-            # Select best sequence from final beam
+            # Select best sequence
             best_idx = torch.argmax(beam_scores).item()
             best_sequence = beam_sequences[best_idx].tolist()
-            
-            # Trim to prompt + max_gen_len and remove EOS
             decoded.append(best_sequence)
         
+        # Post-process: trim to max_gen_len and remove EOS tokens
         for i, t in enumerate(decoded):
-            gen_start = len(prompt_tokens[i])
-            # cut from start to max_gen_len
-            t = t[gen_start: gen_start + max_gen_len]
-            # cut to eos tok if any
+            t = t[len(prompt_tokens[i]): len(prompt_tokens[i]) + max_gen_len]
             try:
                 eos_positions = [t.index(eos) for eos in eos_ids if eos in t]
                 if eos_positions:
@@ -1061,7 +1073,7 @@ def build_generator(
         else:
             sampling_method = "uniform"
     # For other watermark types, set sampling method as usual
-    elif wm_args.watermark_type in ["greenlist", "morphmark", "opt"] or wm_args.watermark_type.startswith("synthid"):
+    elif wm_args.watermark_type in ["greenlist", "morphmark"] or wm_args.watermark_type.startswith("synthid"):
         sampling_method = "binary" 
     else:
         sampling_method = "uniform"
@@ -1088,8 +1100,6 @@ def build_generator(
         base_generator = DipmarkGenerator(model, tokenizer, wm_args)
     elif wm_args.watermark_type == "morphmark":
         base_generator = MorphMarkGenerator(model, tokenizer, wm_args)
-    elif wm_args.watermark_type == "opt":
-        base_generator = OptGenerator(model, tokenizer, wm_args)
     elif wm_args.watermark_type.startswith("synthid"):
         base_generator = SynthidGenerator(model, tokenizer, wm_args)
     elif wm_args.watermark_type == "watermax":

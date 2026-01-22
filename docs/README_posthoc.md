@@ -14,7 +14,7 @@ How it works (2 main components):
 See [../README.md](../README.md) for environment setup.
 
 - Activate the pre-configured env: conda activate text_seal
-- Ensure access to a CUDA GPU for fast generation (e.g. with Flash Attention installed)
+- Ensure access to a CUDA GPU for fast generation
 - Log in to Hugging Face if pulling gated models/tokenizers
 
 
@@ -73,8 +73,8 @@ watermarker = PostHocWatermarker(
 )
 ```
 
-**GPU Options:**
-- `--model.use_flash_attention true` - Enable Flash Attention (faster, requires flash-attn package)
+**Other Options:**
+- `--model.use_flash_attention true` - Explicit use of Flash Attention backend when available (uses SDPA otherwise)
 - `--model.compile_model true` - Torch compile (faster after warmup)
 
 ### Watermark Methods
@@ -276,7 +276,7 @@ You can pass a YAML file via `--config` and/or override any key with nested CLI 
 
 #### ModelConfig
 - `model_name` (str): HF model id, e.g. `meta-llama/Llama-3.2-1B-Instruct`, `meta-llama/Llama-3.2-3B-Instruct`, `meta-llama/Llama-3.1-8B-Instruct`.
-- `use_flash_attention` (bool): Enable Flash Attention for faster/cheaper GPU inference.
+- `use_flash_attention` (bool): Enable optimized attention via PyTorch SDPA (automatically uses Flash Attention on Ampere+ GPUs).
 - `compile_model` (bool): Torch compile for speed; can increase warmup time.
 
 

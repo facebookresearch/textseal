@@ -15,7 +15,7 @@ or
 from dataclasses import dataclass, field
 from pathlib import Path
 import time
-from typing import List, Optional
+from typing import Optional
 
 import torch
 from torch import nn
