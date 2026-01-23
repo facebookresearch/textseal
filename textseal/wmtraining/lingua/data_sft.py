@@ -5,7 +5,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Optional, List, Dict, Tuple
 import numpy as np
 import torch
 from textseal.wmtraining.lingua.tokenizer import build_tokenizer, TokenizerArgs

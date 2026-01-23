@@ -48,7 +48,7 @@ import os
 from pathlib import Path
 from lm_eval.api.instance import Instance
 from lm_eval.api.model import LM
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, List
 from lm_eval import simple_evaluate
 from omegaconf import OmegaConf
 import torch

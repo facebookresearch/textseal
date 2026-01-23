@@ -34,7 +34,7 @@ python -m textseal.common.llm.generate \
 from dataclasses import dataclass, field
 from pathlib import Path
 import time
-from typing import Optional
+from typing import Optional, List
 
 import torch
 from torch import nn

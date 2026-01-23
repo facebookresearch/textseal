@@ -4,7 +4,7 @@
 import logging
 from collections import namedtuple
 from dataclasses import dataclass, asdict
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, List, Dict
 from pathlib import Path
 import json
 from datetime import datetime, timezone

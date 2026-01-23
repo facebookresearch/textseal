@@ -15,7 +15,7 @@ import sys
 import tempfile
 from dataclasses import asdict, dataclass
 from functools import lru_cache, partial, reduce
-from typing import Optional, Union
+from typing import Optional, Union, List, Tuple
 
 import torch
 from torch.distributed import ReduceOp

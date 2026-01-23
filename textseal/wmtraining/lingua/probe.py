@@ -19,7 +19,7 @@ import json
 import math
 from enum import Enum
 from collections import defaultdict
-from typing import Any, Optional
+from typing import Any, Optional, List, Dict, Tuple
 from pathlib import Path
 
 import torch
