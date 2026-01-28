@@ -16,13 +16,13 @@ class WatermarkConfig:
     # Core watermark parameters
     secret_key: int = 42
     ngram: int = 1
-    gamma: float = 0.5  # greenlist fraction
     
     # Watermark type and method
-    watermark_type: str = "greenlist"  # "greenlist", "gumbelmax", "dipmark", "synthid", "watermax", "none"
-    method: str = "binary"  # "binary", "uniform": the pseudorandom function method
+    watermark_type: str = "gumbelmax"  # "greenlist", "gumbelmax", "dipmark", "synthid", "watermax", "none"
+    method: str = "uniform"  # "binary", "uniform": the pseudorandom function method
     
     # Generation-specific parameters
+    gamma: float = 0.5  # greenlist fraction
     delta: float = 2.0  # strength parameter in Green-list/Red-list
     alpha: float = 0.2  # interval parameter in DiPMark
     depth: int = 30  # number of tournaments in SynthID

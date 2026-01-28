@@ -311,5 +311,4 @@ with open("output/exp1/attack_results.jsonl") as f:
 
 **Q: Too slow?**
 - Use a smaller attack model
-- Enable Flash Attention: `--model.use_flash_attention true`
 - Process fewer lines: `--num_lines 100`

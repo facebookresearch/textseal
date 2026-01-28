@@ -152,6 +152,8 @@ def main():
         }
         if cfg.model.use_flash_attention:
             model_kwargs["attn_implementation"] = "flash_attention_2"
+        else:
+            model_kwargs["attn_implementation"] = "sdpa"
         
         model = AutoModelForCausalLM.from_pretrained(
             cfg.model.model_name,

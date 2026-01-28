@@ -8,30 +8,37 @@ from dataclasses import dataclass
 from typing import Optional
 
 MODEL_NAMES = [
-    "HuggingFaceTB/SmolLM2-135M-Instruct",
-    "HuggingFaceTB/SmolLM2-360M-Instruct",
-    "HuggingFaceTB/SmolLM3-3B",
-    "google/gemma-3-4b-it",
-    "meta-llama/Llama-3.1-8B-Instruct",
-    "meta-llama/Llama-3.2-1B-Instruct",
-    "meta-llama/Llama-3.2-3B-Instruct",
+  "meta-llama/Llama-3.2-1B-Instruct",
+  "meta-llama/Llama-3.2-3B-Instruct",
+  "meta-llama/Llama-3.1-8B-Instruct",
+  "meta-llama/Llama-3.3-70B-Instruct",
+  "google/gemma-3-4b-it",
+  "google/gemma-3-27b-it",
+  "Qwen/Qwen2.5-0.5B-Instruct",
+  "Qwen/Qwen2.5-1.5B-Instruct",
+  "Qwen/Qwen2.5-3B-Instruct",
+  "Qwen/Qwen2.5-7B-Instruct",
+  "Qwen/Qwen2.5-14B-Instruct",
+  "Qwen/Qwen2.5-32B-Instruct",
+  "Qwen/Qwen2.5-72B-Instruct",
+  "HuggingFaceTB/SmolLM2-135M-Instruct",
+  "HuggingFaceTB/SmolLM2-360M-Instruct",
+  "HuggingFaceTB/SmolLM3-3B",
 ]
 
 
 @dataclass
 class ModelConfig:
-    model_name: str = "meta-llama/Llama-3.2-3B-Instruct"  # HuggingFace model name
+    model_name: str = "meta-llama/Llama-3.2-1B-Instruct"  # HuggingFace model name
     use_flash_attention: bool = False  # use Flash Attention 2
     compile_model: bool = False  # use torch.compile
     cache_dir: Optional[str] = None  # HuggingFace cache dir
-    
-    assert model_name in MODEL_NAMES, "Model name not in supported MODEL_NAMES."
 
 
 @dataclass
 class ProcessingConfig:
     max_gen_len: int = 1024  # max generation length
-    temperature: float = 0.8  # sampling temperature
+    temperature: float = 0.9  # sampling temperature
     top_p: float = 0.95  # top-p sampling
     target_chunk_size: int = 2000  # target chunk size (chars)
     max_chunk_size: int = 1024  # max chunk size (tokens)

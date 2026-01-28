@@ -56,6 +56,7 @@ from textseal.posthoc.watermarker import PostHocWatermarker
 from textseal.posthoc.attack import AttackSimulator
 from textseal.posthoc.config import (
     ModelConfig,
+    MODEL_NAMES,
     ProcessingConfig,
     PromptConfig,
     EvaluationConfig,
@@ -124,6 +125,8 @@ def main():
     # Validate some argument values
     if not torch.cuda.is_available():
         assert not cfg.model.use_flash_attention, "Flash Attention requires a CUDA-capable GPU."
+    if cfg.model.model_name not in MODEL_NAMES:
+        print(f"Model '{cfg.model.model_name}' hasn't been tested with TextSeal. Proceed with caution.")
 
     # Seed for reproducibility
     random.seed(cfg.seed)

@@ -190,8 +190,7 @@ conda activate text_seal
 ```
 Then run, e.g.:
 ```bash
-python -m textseal.posthoc.main --input_path /path/to/HumanEval_processed.jsonl --model.model_name meta-llama/Llama-3.1-8B-Instruct  --watermark.watermark_type "gumbelmax" --processing.temperature 0.9 --model.use_flash_att
-ention true --prompt.prefill_answer "Here is the rephrased code:\n" --prompt.preserve_style false --prompt.preserve_format false  --evaluation.enable_code_evaluation true
+python -m textseal.posthoc.main --input_path /path/to/HumanEval_processed.jsonl --model.model_name meta-llama/Llama-3.1-8B-Instruct  --watermark.watermark_type "gumbelmax" --processing.temperature 0.9 --prompt.prefill_answer "Here is the rephrased code:\n" --prompt.preserve_style false --prompt.preserve_format false  --evaluation.enable_code_evaluation true
 ```
 
 
