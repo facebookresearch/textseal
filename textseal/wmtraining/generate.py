@@ -6,25 +6,25 @@ cd /path/to/textseal
 conda activate lingua
 
 Run with:
-    python -m textseal.common.llm.generate --ckpt /path/to/data --prompts "Tomas Soucek is" "Sylvestre Rebuffi is" --temperature 0.9 --top_p 0.95
-    python -m textseal.common.llm.generate \
+    python -m textseal.utils.llm.generate --ckpt /path/to/data --prompts "Tomas Soucek is" "Sylvestre Rebuffi is" --temperature 0.9 --top_p 0.95
+    python -m textseal.utils.llm.generate \
         --temperature 0.9 --top_p 0.95 \
         --ckpt /path/to/data \
         --prompts "The earth is" \
 
 or
-    python -m textseal.common.llm.generate \
+    python -m textseal.utils.llm.generate \
         --ckpt /checkpoint/path/to/checkpoint/consolidated \
         --prompts "Once upon a time" "In a galaxy far away"
 
-        python -m textseal.common.llm.generate --ckpt /checkpoint/path/to/checkpoint/consolidated
+        python -m textseal.utils.llm.generate --ckpt /checkpoint/path/to/checkpoint/consolidated
 
 
 --ckpt /path/to/data
 
 
 
-python -m textseal.common.llm.generate \
+python -m textseal.utils.llm.generate \
         --temperature 0.9 --top_p 0.95 \
         --ckpt /path/to/textseal \
         --prompts "The earth is" \
@@ -44,8 +44,9 @@ from omegaconf import OmegaConf
 from torch.nn import functional as F
 from torch.nn.attention.flex_attention import create_block_mask
 
-from textseal.common.utils.config import dataclass_from_dict, cfg_from_cli
-from textseal.common.watermark.core import WatermarkArgs, score_tokens
+from textseal.utils.config import dataclass_from_dict, cfg_from_cli
+from textseal.watermarking.config import WatermarkConfig
+from textseal.watermarking.core import score_tokens
 from textseal.wmtraining.lingua.checkpoint import CONSOLIDATE_NAME
 from textseal.wmtraining.lingua.tokenizer import Tokenizer, build_tokenizer
 from textseal.wmtraining.lingua.transformer import (
@@ -566,7 +567,7 @@ def main():
     tokens_per_second = total_tokens / (end_time - start_time)
 
     # Compute watermark mask and proportion for each generation
-    wm_args = getattr(config, "watermark", WatermarkArgs())
+    wm_args = getattr(config, "watermark", WatermarkConfig())
     wm_pred_props = []
     wm_masks = []
     for gen in generation:

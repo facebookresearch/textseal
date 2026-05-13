@@ -23,12 +23,12 @@ See [../README.md](../README.md) for environment setup.
 Examples:
 ```bash
 # Simple watermarking (.txt)
-python -m textseal.posthoc.main \
+python -m textseal.watermarking.main \
   --input_path assets/sample_document.txt \
   --dump_dir output/
 
 # Advanced config (.txt with adaptive processing)
-python -m textseal.posthoc.main \
+python -m textseal.watermarking.main \
   --input_path assets/longer_sample_document.txt \
   --dump_dir output/ \
   --watermark.watermark_type greenlist \
@@ -38,7 +38,7 @@ python -m textseal.posthoc.main \
   --model.model_name meta-llama/Llama-3.2-1B-Instruct
 
 # JSONL input (set the text key if not 'text')
-python -m textseal.posthoc.main \
+python -m textseal.watermarking.main \
   --input_path path/to/input.jsonl \
   --dump_dir output/ \
   --text_key content
@@ -62,7 +62,7 @@ For higher fidelity and closer paraphrasing, use larger models (8B–70B), thoug
 
 **CLI:**
 ```bash
-python -m textseal.posthoc.main --model.model_name meta-llama/Llama-3.1-8B-Instruct ...
+python -m textseal.watermarking.main --model.model_name meta-llama/Llama-3.1-8B-Instruct ...
 ```
 
 **Python:**
@@ -91,16 +91,16 @@ watermarker = PostHocWatermarker(
 **CLI Examples:**
 ```bash
 # Greenlist (classic, tunable strength)
-python -m textseal.posthoc.main --watermark.watermark_type greenlist --watermark.delta 2.5 --watermark.gamma 0.5 ...
+python -m textseal.watermarking.main --watermark.watermark_type greenlist --watermark.delta 2.5 --watermark.gamma 0.5 ...
 
 # Gumbelmax (recommended, quality-preserving)
-python -m textseal.posthoc.main --watermark.watermark_type gumbelmax --processing.temperature 1.0 ...
+python -m textseal.watermarking.main --watermark.watermark_type gumbelmax --processing.temperature 1.0 ...
 
 # SynthID (tournament-based)
-python -m textseal.posthoc.main --watermark.watermark_type synthid --watermark.depth 4 ...
+python -m textseal.watermarking.main --watermark.watermark_type synthid --watermark.depth 4 ...
 
 # DipMark (distribution-preserving)
-python -m textseal.posthoc.main --watermark.watermark_type dipmark --watermark.alpha 0.5 ...
+python -m textseal.watermarking.main --watermark.watermark_type dipmark --watermark.alpha 0.5 ...
 ```
 
 ### Watermark Strength
@@ -114,10 +114,10 @@ Control with `temperature` (valid for all watermarking methods):
 
 ```bash
 # Stronger watermark
-python -m textseal.posthoc.main --watermark.watermark_type gumbelmax --processing.temperature 1.2 ...
+python -m textseal.watermarking.main --watermark.watermark_type gumbelmax --processing.temperature 1.2 ...
 
 # Weaker watermark (better quality)
-python -m textseal.posthoc.main --watermark.watermark_type gumbelmax --processing.temperature 0.7 ...
+python -m textseal.watermarking.main --watermark.watermark_type gumbelmax --processing.temperature 0.7 ...
 ```
 
 #### Greenlist
@@ -127,10 +127,10 @@ Control with `delta`:
 
 ```bash
 # Stronger watermark
-python -m textseal.posthoc.main --watermark.watermark_type greenlist --watermark.delta 4.0 ...
+python -m textseal.watermarking.main --watermark.watermark_type greenlist --watermark.delta 4.0 ...
 
 # Weaker watermark
-python -m textseal.posthoc.main --watermark.watermark_type greenlist --watermark.delta 1.5 ...
+python -m textseal.watermarking.main --watermark.watermark_type greenlist --watermark.delta 1.5 ...
 ```
 
 #### General Tips
@@ -142,9 +142,9 @@ python -m textseal.posthoc.main --watermark.watermark_type greenlist --watermark
 ### Python API
 
 ```python
-from textseal.posthoc.watermarker import PostHocWatermarker
+from textseal.watermarking.watermarker import PostHocWatermarker
 from textseal.common.watermark.core import WatermarkConfig
-from textseal.posthoc.config import PromptConfig, ModelConfig, ProcessingConfig
+from textseal.watermarking.config import PromptConfig, ModelConfig, ProcessingConfig
 
 # Custom configuration
 wm = PostHocWatermarker(
@@ -180,7 +180,7 @@ Example command:
 
 **On CPU**
 ```bash
-python -m textseal.posthoc.main --input_path "your/texts.jsonl" --text_key "text" --model.model_name meta-llama/Llama-3.2-1B-Instruct  --watermark.watermark_type "greenlist" --watermark.delta 1 --processing.temperature 0.8 --model.use_flash_attention false
+python -m textseal.watermarking.main --input_path "your/texts.jsonl" --text_key "text" --model.model_name meta-llama/Llama-3.2-1B-Instruct  --watermark.watermark_type "greenlist" --watermark.delta 1 --processing.temperature 0.8 --model.use_flash_attention false
 ```
 
 **On GPU**, first allocate a GPU node, e.g.:
@@ -190,7 +190,7 @@ conda activate text_seal
 ```
 Then run, e.g.:
 ```bash
-python -m textseal.posthoc.main --input_path /path/to/HumanEval_processed.jsonl --model.model_name meta-llama/Llama-3.1-8B-Instruct  --watermark.watermark_type "gumbelmax" --processing.temperature 0.9 --prompt.prefill_answer "Here is the rephrased code:\n" --prompt.preserve_style false --prompt.preserve_format false  --evaluation.enable_code_evaluation true
+python -m textseal.watermarking.main --input_path /path/to/HumanEval_processed.jsonl --model.model_name meta-llama/Llama-3.1-8B-Instruct  --watermark.watermark_type "gumbelmax" --processing.temperature 0.9 --prompt.prefill_answer "Here is the rephrased code:\n" --prompt.preserve_style false --prompt.preserve_format false  --evaluation.enable_code_evaluation true
 ```
 
 

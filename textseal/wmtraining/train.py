@@ -72,7 +72,7 @@ from textseal.wmtraining.lingua.optim import OptimArgs, build_optimizer
 from textseal.wmtraining.lingua.profiling import ProfilerArgs, maybe_run_profiler
 from textseal.wmtraining.lingua.tokenizer import build_tokenizer
 from textseal.wmtraining.lingua.probe import AutoProbeD
-from textseal.common.stool import StoolArgs, launch_job
+from textseal.utils.stool import StoolArgs, launch_job
 from textseal.wmtraining.transformer import (
     LMTransformerArgs,
     LMTransformerWM,
@@ -81,8 +81,9 @@ from textseal.wmtraining.transformer import (
     tp_parallelize,
     get_no_recompute_ops,
 )
-from textseal.common.utils.config import dataclass_from_dict, dump_config, flatten_dict, cfg_from_cli
-from textseal.common.watermark.core import score_batch, WatermarkConfig
+from textseal.utils.config import dataclass_from_dict, dump_config, flatten_dict, cfg_from_cli
+from textseal.watermarking.config import WatermarkConfig
+from textseal.watermarking.core import score_batch
 
 import wandb
 

@@ -9,15 +9,15 @@ Basic usage:
     >>> result = watermarker.process_text("Your text here")
 """
 
-from textseal.posthoc import PostHocWatermarker
-from textseal.posthoc.config import (
+from textseal.watermarking import PostHocWatermarker
+from textseal.watermarking.config import (
+    WatermarkConfig,
     ModelConfig,
     ProcessingConfig,
     EvaluationConfig,
     PromptConfig,
     AttackConfig,
 )
-from textseal.common.watermark import WatermarkConfig
 __version__ = "0.0.4"
 
 __all__ = [

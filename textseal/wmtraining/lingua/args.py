@@ -1,11 +1,11 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# DEPRECATED: Use textseal.common.config instead
+# DEPRECATED: Use textseal.utils.config instead
 
 import warnings
-from textseal.common.utils.config import *
+from textseal.utils.config import *
 
 warnings.warn(
-    "textseal.wmtraining.lingua.args is deprecated. Use textseal.common.config instead.",
+    "textseal.wmtraining.lingua.args is deprecated. Use textseal.utils.config instead.",
     DeprecationWarning,
     stacklevel=2
 )

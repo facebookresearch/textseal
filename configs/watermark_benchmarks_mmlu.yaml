@@ -2,7 +2,7 @@
 # This watermarks MMLU with secret_key=1234
 # 
 # Usage:
-# python -m textseal.posthoc.main --config configs/watermark_benchmarks_mmlu.yaml
+# python -m textseal.watermarking.main --config configs/watermark_benchmarks_mmlu.yaml
 
 name: watermark_benchmarks_mmlu
 

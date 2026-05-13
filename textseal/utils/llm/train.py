@@ -2,7 +2,7 @@
 
 """
 Run with:
-    python -m textseal.common.llm.train --config /path/to/text-seal
+    python -m textseal.utils.llm.train --config /path/to/text-seal
 """
 
 
@@ -29,7 +29,7 @@ from torch.distributed.checkpoint.stateful import Stateful
 from torch.distributed._tensor import DTensor
 
 
-from textseal.common.utils.config import dataclass_from_dict, dump_config, flatten_dict, cfg_from_cli
+from textseal.utils.config import dataclass_from_dict, dump_config, flatten_dict, cfg_from_cli
 from textseal.wmtraining.lingua.checkpoint import CheckpointArgs, CheckpointManager, load_from_checkpoint
 from textseal.wmtraining.lingua.data import (
     DataArgs,
@@ -62,7 +62,7 @@ from textseal.wmtraining.lingua.metrics import (
 from textseal.wmtraining.lingua.optim import OptimArgs, build_optimizer
 from textseal.wmtraining.lingua.profiling import ProfilerArgs, maybe_run_profiler
 from textseal.wmtraining.lingua.tokenizer import build_tokenizer
-from textseal.common.llm.transformer import (
+from textseal.utils.llm.transformer import (
     LMTransformerArgs,
     LMTransformer,
     get_num_flop_per_token,
@@ -550,7 +550,7 @@ def train(args: TrainArgs):
             if args.eval is not None and every_n_steps(
                 train_state, args.checkpoint.eval.every, acc_step=0
             ):
-                from textseal.common.llm.eval import (
+                from textseal.utils.llm.eval import (
                     launch_eval,
                     EVAL_FOLDER_NAME,
                     EvalArgs,
@@ -579,7 +579,7 @@ def train(args: TrainArgs):
                         launch_job(
                             StoolArgs(
                                 asdict(eval_args),
-                                script="textseal.common.llm.eval",
+                                script="textseal.utils.llm.eval",
                                 copy_code=False,
                                 nodes=args.async_eval_gpus // 8,
                                 qos="lowest",

@@ -2,12 +2,12 @@
 
 """
 Run with:
-    python -m textseal.common.llm.generate --ckpt /path/to/checkpoint/consolidated
+    python -m textseal.utils.llm.generate --ckpt /path/to/checkpoint/consolidated
 
-    python -m textseal.common.llm.generate --ckpt /path/to/checkpoint/consolidated --prompts "Hello, " "How are" --temperature 0.9 --top_p 0.95
+    python -m textseal.utils.llm.generate --ckpt /path/to/checkpoint/consolidated --prompts "Hello, " "How are" --temperature 0.9 --top_p 0.95
 
 or
-    python -m textseal.common.llm.generate \
+    python -m textseal.utils.llm.generate \
         --ckpt /path/to/checkpoint/consolidated \
         --prompts "Once upon a time" "In a galaxy far away"
 """
@@ -25,8 +25,8 @@ from omegaconf import OmegaConf
 from torch.nn import functional as F
 import xformers
 
-from textseal.common.llm.transformer import LMTransformer, LMTransformerArgs
-from textseal.common.utils.config import dataclass_from_dict, cfg_from_cli
+from textseal.utils.llm.transformer import LMTransformer, LMTransformerArgs
+from textseal.utils.config import dataclass_from_dict, cfg_from_cli
 from textseal.wmtraining.lingua.checkpoint import CONSOLIDATE_NAME
 from textseal.wmtraining.lingua.tokenizer import Tokenizer, build_tokenizer
 from textseal.wmtraining.lingua.transformer import (

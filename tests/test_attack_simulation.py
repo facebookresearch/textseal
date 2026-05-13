@@ -16,8 +16,8 @@ def test_attack_simulator_basic():
     print("Testing AttackSimulator basic attack...")
     
     try:
-        from textseal.posthoc.attack import AttackSimulator
-        from textseal.posthoc.config import AttackConfig
+        from textseal.watermarking.attack import AttackSimulator
+        from textseal.watermarking.config import AttackConfig
         
         print("  - Creating AttackSimulator...")
         attack_config = AttackConfig(
@@ -65,8 +65,8 @@ def test_attack_simulator_all_strengths():
     print("Testing AttackSimulator all strengths...")
     
     try:
-        from textseal.posthoc.attack import AttackSimulator
-        from textseal.posthoc.config import AttackConfig
+        from textseal.watermarking.attack import AttackSimulator
+        from textseal.watermarking.config import AttackConfig
         
         print("  - Creating AttackSimulator with multiple strengths...")
         attack_config = AttackConfig(
@@ -112,8 +112,8 @@ def test_attack_simulator_chunks():
     print("Testing AttackSimulator with chunks...")
     
     try:
-        from textseal.posthoc.attack import AttackSimulator
-        from textseal.posthoc.config import AttackConfig
+        from textseal.watermarking.attack import AttackSimulator
+        from textseal.watermarking.config import AttackConfig
         
         print("  - Creating AttackSimulator...")
         attack_config = AttackConfig(
@@ -160,7 +160,7 @@ def test_attack_config_strengths():
     print("Testing AttackConfig strengths...")
     
     try:
-        from textseal.posthoc.config import AttackConfig
+        from textseal.watermarking.config import AttackConfig
         
         print("  - Testing default strength...")
         config1 = AttackConfig()
@@ -198,7 +198,7 @@ def test_attack_integration_with_watermarker():
     
     try:
         from textseal import PostHocWatermarker, WatermarkConfig, ModelConfig, AttackConfig
-        from textseal.posthoc.attack import AttackSimulator
+        from textseal.watermarking.attack import AttackSimulator
         
         print("  - Creating watermarker...")
         watermarker = PostHocWatermarker(

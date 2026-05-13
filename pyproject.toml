@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "textseal"
-version = "0.0.4"
-description = "Post-hoc LLM watermarking toolkit"
+version = "0.2.0"
+description = "Generation-time and post-hoc LLM watermarking toolkit"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {file = "LICENSE"}

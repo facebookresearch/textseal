@@ -1,8 +1,8 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
-"""Entry point for python -m textseal.posthoc."""
+"""Entry point for python -m textseal.watermarking."""
 
-from textseal.posthoc.main import main
+from textseal.watermarking.main import main
 
 if __name__ == "__main__":
     exit(main())

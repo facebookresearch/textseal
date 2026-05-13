@@ -52,13 +52,13 @@ from typing import Any, Optional, Union, List
 from lm_eval import simple_evaluate
 from omegaconf import OmegaConf
 import torch
-from textseal.common.llm.generate import (
+from textseal.utils.llm.generate import (
     PackedCausalTransformerGenerator,
     PackedCausalTransformerGeneratorArgs,
     load_consolidated_model_and_tokenizer,
 )
-from textseal.common.llm.transformer import LMTransformer, LMTransformerArgs
-from textseal.common.utils.config import dump_config, dataclass_from_dict, cfg_from_cli
+from textseal.utils.llm.transformer import LMTransformer, LMTransformerArgs
+from textseal.utils.config import dump_config, dataclass_from_dict, cfg_from_cli
 from textseal.wmtraining.lingua.checkpoint import CONSOLIDATE_FOLDER, consolidate_checkpoints
 from textseal.wmtraining.lingua.data import init_choice_state, setup_sources
 from textseal.wmtraining.lingua.distributed import (

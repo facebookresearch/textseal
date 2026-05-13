@@ -46,15 +46,15 @@ from pathlib import Path
 import torch
 from omegaconf import OmegaConf
 
-from textseal.common.utils.config import dataclass_from_dict, cfg_from_cli
+from textseal.utils.config import dataclass_from_dict, cfg_from_cli
 from textseal.wmtraining.generate import (
     PackedCausalTransformerGenerator,
     PackedCausalTransformerGeneratorArgs,
     load_consolidated_model_and_tokenizer,
 )
 from textseal.wmtraining.transformer import LMTransformerWM, LMTransformerArgs
-from textseal.common.watermark.core import WatermarkArgs
-from textseal.common.watermark.core import score_batch
+from textseal.watermarking.config import WatermarkConfig
+from textseal.watermarking.core import score_batch
 from IPython.display import display, HTML  # Add for HTML display
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ class EvalWMArgs:
     )
     
     # Watermark evaluation parameters
-    watermark: WatermarkArgs = field(default_factory=WatermarkArgs)
+    watermark: WatermarkConfig = field(default_factory=WatermarkConfig)
     num_sources: int = 1  # Number of different source watermarks to evaluate
 
     # Cross-tokenizer detection parameters
@@ -231,7 +231,7 @@ def _cross_tokenizer_detection(
     score_pred_tokens: torch.Tensor,
     tokenizer,
     wm_tokenizer,
-    wm_args: WatermarkArgs,
+    wm_args: WatermarkConfig,
     verbose: bool = False
 ):
     """
@@ -363,7 +363,7 @@ def evaluate_forward_watermarks(
     model: torch.nn.Module,
     tokenizer,
     input_data: str | tuple[str, str],
-    wm_args: WatermarkArgs,
+    wm_args: WatermarkConfig,
     num_sources: int,
     verbose: bool = True,
     output_file = None,
@@ -565,7 +565,7 @@ def evaluate_forward_watermarks(
 def evaluate_generation_watermarks(
     generator: PackedCausalTransformerGenerator,
     prompts: list[str],
-    wm_args: WatermarkArgs,
+    wm_args: WatermarkConfig,
     num_sources: int,
     verbose: bool = True,
     output_file = None,
@@ -744,7 +744,7 @@ def main():
         
         # Also apply watermark defaults for any missing watermark fields
         if 'watermark' in cfg:
-            from textseal.common.watermark.core import WatermarkConfig
+            from textseal.watermarking.config import WatermarkConfig
             wm_defaults = OmegaConf.to_container(OmegaConf.structured(WatermarkConfig()))
             for key, value in wm_defaults.items():
                 if key not in cfg['watermark']:
@@ -781,7 +781,7 @@ def main():
             
             # Also apply watermark defaults for any missing watermark fields
             if 'watermark' in cfg:
-                from textseal.common.watermark.core import WatermarkConfig
+                from textseal.watermarking.config import WatermarkConfig
                 wm_defaults = OmegaConf.to_container(OmegaConf.structured(WatermarkConfig()))
                 for key, value in wm_defaults.items():
                     if key not in cfg['watermark']:

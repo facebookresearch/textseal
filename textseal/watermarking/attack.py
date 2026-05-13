@@ -12,7 +12,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
-from textseal.posthoc.config import AttackConfig, ModelConfig
+from textseal.watermarking.config import AttackConfig, ModelConfig
 
 # Length of user text to use as a marker for extracting attacked text from model output
 USER_TEXT_MARKER_LENGTH = 50

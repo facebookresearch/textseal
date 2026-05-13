@@ -62,14 +62,14 @@ The attack system includes 4 predefined strength levels with optimized prompts a
 
 ```bash
 # With config file
-python -m textseal.posthoc.main \
+python -m textseal.watermarking.main \
     --config configs/my_watermark_config.yaml \
     --evaluation.evaluate_attack true \
     --attack.enable_attack true \
     --attack.attack_model_name meta-llama/Llama-3.2-3B-Instruct
 
 # With direct arguments
-python -m textseal.posthoc.main \
+python -m textseal.watermarking.main \
     --input_path assets/sample_document.txt \
     --model.model_name meta-llama/Llama-3.2-1B-Instruct \
     --watermark.watermark_type greenlist \
@@ -133,7 +133,7 @@ If you already have watermarked texts from previous experiments, use the standal
 
 ```bash
 # Minimal usage - watermark config auto-loaded from input file
-python -m textseal.posthoc.attack_only \
+python -m textseal.watermarking.attack_only \
     --input_path output/previous_results.jsonl \
     --wm_text_key wm_text \
     --model.model_name meta-llama/Llama-3.2-1B-Instruct \
@@ -141,7 +141,7 @@ python -m textseal.posthoc.attack_only \
     --output_path output/attack_results.jsonl
 
 # Manual override (if watermark_config not in file or you want different params)
-python -m textseal.posthoc.attack_only \
+python -m textseal.watermarking.attack_only \
     --input_path output/previous_results.jsonl \
     --wm_text_key wm_text \
     --watermark.watermark_type greenlist \
@@ -203,7 +203,7 @@ The output JSONL preserves all original fields and adds:
 You can combine attack evaluation with multi-test mode:
 
 ```bash
-python -m textseal.posthoc.main \
+python -m textseal.watermarking.main \
     --input_path assets/sample_document.txt \
     --watermark.watermark_type synthid \
     --evaluation.test_entropy_thresholds "none,1.5,2.0,2.5" \
@@ -219,12 +219,12 @@ The key advantage is that you can use the **same attack model** regardless of wh
 
 ```bash
 # Watermark with Model A, attack with Model C
-python -m textseal.posthoc.main \
+python -m textseal.watermarking.main \
     --model.model_name meta-llama/Llama-3.2-1B-Instruct \
     --attack.attack_model_name meta-llama/Llama-3.2-3B-Instruct
 
 # Watermark with Model B, attack with Model C (same attack model)
-python -m textseal.posthoc.main \
+python -m textseal.watermarking.main \
     --model.model_name HuggingFaceTB/SmolLM2-360M-Instruct \
     --attack.attack_model_name meta-llama/Llama-3.2-3B-Instruct
 ```
@@ -256,7 +256,7 @@ attack:
 ### Step 1: Initial Watermarking (without attack)
 
 ```bash
-python -m textseal.posthoc.main \
+python -m textseal.watermarking.main \
     --input_path data/my_documents.jsonl \
     --model.model_name meta-llama/Llama-3.2-1B-Instruct \
     --watermark.watermark_type greenlist \
@@ -266,7 +266,7 @@ python -m textseal.posthoc.main \
 ### Step 2: Later, Attack Pre-watermarked Texts
 
 ```bash
-python -m textseal.posthoc.attack_only \
+python -m textseal.watermarking.attack_only \
     --input_path output/exp1/results.jsonl \
     --wm_text_key wm_text \
     --watermark.watermark_type greenlist \

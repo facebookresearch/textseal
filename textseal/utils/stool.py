@@ -9,14 +9,14 @@ from typing import Any
 
 from omegaconf import OmegaConf
 
-from textseal.common.utils.config import dataclass_from_dict
+from textseal.utils.config import dataclass_from_dict
 
 
 @dataclass
 class StoolArgs:
     config: Any = None
     launcher: str = "sbatch"  # Can be sbatch or bash if already in salloc
-    script: str = "textseal.common.llm.train"  # The script to run.
+    script: str = "textseal.utils.llm.train"  # The script to run.
     copy_code: bool = True  # Wether to copy code to dump dir
     dirs_exists_ok: bool = (
         False  # Wether to copy new code and config and run regardless that dir exists

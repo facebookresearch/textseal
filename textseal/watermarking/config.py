@@ -7,24 +7,109 @@ Configuration dataclasses for post-hoc watermarking system.
 from dataclasses import dataclass
 from typing import Optional
 
+
+DUAL_KEY_OFFSET = 12345
+
+
 MODEL_NAMES = [
-  "meta-llama/Llama-3.2-1B-Instruct",
-  "meta-llama/Llama-3.2-3B-Instruct",
-  "meta-llama/Llama-3.1-8B-Instruct",
-  "meta-llama/Llama-3.3-70B-Instruct",
-  "google/gemma-3-4b-it",
-  "google/gemma-3-27b-it",
-  "Qwen/Qwen2.5-0.5B-Instruct",
-  "Qwen/Qwen2.5-1.5B-Instruct",
-  "Qwen/Qwen2.5-3B-Instruct",
-  "Qwen/Qwen2.5-7B-Instruct",
-  "Qwen/Qwen2.5-14B-Instruct",
-  "Qwen/Qwen2.5-32B-Instruct",
-  "Qwen/Qwen2.5-72B-Instruct",
-  "HuggingFaceTB/SmolLM2-135M-Instruct",
-  "HuggingFaceTB/SmolLM2-360M-Instruct",
-  "HuggingFaceTB/SmolLM3-3B",
+    # HF
+    "HuggingFaceTB/SmolLM2-135M-Instruct",
+    "HuggingFaceTB/SmolLM2-360M-Instruct",
+    "HuggingFaceTB/SmolLM3-3B",
+    # Gemma-3
+    "google/gemma-3-4b-it",
+    "google/gemma-3-27b-it",
+    # Llama 3
+    "meta-llama/Llama-3.1-8B-Instruct",
+    "meta-llama/Llama-3.2-1B-Instruct",
+    "meta-llama/Llama-3.2-3B-Instruct",
+    "meta-llama/Llama-3.3-70B-Instruct",
+    # Qwen2.5
+    "Qwen/Qwen2.5-0.5B-Instruct",
+    "Qwen/Qwen2.5-1.5B-Instruct",
+    "Qwen/Qwen2.5-3B-Instruct",
+    "Qwen/Qwen2.5-7B-Instruct",
+    "Qwen/Qwen2.5-14B-Instruct",
+    "Qwen/Qwen2.5-32B-Instruct",
+    "Qwen/Qwen2.5-72B-Instruct",
+    # Qwen3
+    "Qwen/Qwen3-0.6B",
+    "Qwen/Qwen3-1.7B",
+    "Qwen/Qwen3-4B",
+    "Qwen/Qwen3-8B",
+    "Qwen/Qwen3-14B",
+    "Qwen/Qwen3-32B",
+    # Reasoning Models 
+    # DeepSeek-R1 distilled
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+    "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+    "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+    # Qwen reasoning models
+    "Qwen/QwQ-32B-Preview",
+    "Qwen/QwQ-32B",
+    "Qwen/Qwen3-4B-Thinking-2507",
+    "Qwen/Qwen3-30B-A3B-Thinking-2507",
+    # Mistral reasoning models
+    "mistralai/Ministral-3-14B-Reasoning-2512",
+    "mistralai/Ministral-3-3B-Reasoning-2512",
+    # Microsoft reasoning models
+    "microsoft/Phi-4-reasoning-plus",
+    # OpenAI GPT-OSS (open-weight reasoning models with harmony format)
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
 ]
+
+
+@dataclass
+class WatermarkConfig:
+    """Unified watermark configuration for both training and post-hoc watermarking."""
+
+    # Core watermark parameters
+    secret_key: int = 42
+    ngram: int = 1
+
+    # Watermark type and method
+    watermark_type: str = "gumbelmax"  # "greenlist", "gumbelmax", "dipmark", "synthid", "watermax", "textseal", "none"
+    method: str = "uniform"  # "binary", "uniform": the pseudorandom function method
+
+    # Generation-specific parameters
+    gamma: float = 0.5  # greenlist fraction
+    delta: float = 2.0  # strength parameter in Green-list/Red-list
+    alpha: float = 0.2  # interval parameter in DiPMark
+    depth: int = 30  # number of tournaments in SynthID
+    after_topp: bool = True  # For greenlist: apply bias after top-p filtering if True
+    k_morphmark: float = 1.30  # For MorphMark
+    p_0: float = 0.15  # For MorphMark
+
+    # WaterMax-specific parameters
+    chunk_size: int = 4  # L: number of tokens per chunk in WaterMax
+    num_drafts: int = 4  # m: number of draft sequences to generate per chunk
+    base_watermark: str = "greenlist"  # Base watermark for WaterMax scoring ("greenlist", "gumbelmax", "synthid")
+
+    # Training-specific parameters
+    attenuation: str = "interpolate"
+    attenuation_weight: float = 0.0
+    backprop_on_nonzero: bool = False
+
+    # Detection parameters
+    scoring_method: str = "v2"  # "v1" (dedup by window), "v2" (dedup by window+target), "none" or others (no dedup)
+
+    # TextSeal-specific parameters
+    secret_key_b: int = -1  # Key B (-1 = auto: secret_key + DUAL_KEY_OFFSET)
+    gumbel_val: float = 0.5  # Probability of using Key A per token (0.5 = equal)
+
+    @property
+    def key_a(self) -> int:
+        return self.secret_key
+
+    @property
+    def key_b(self) -> int:
+        if self.secret_key_b >= 0:
+            return self.secret_key_b
+        return self.secret_key + DUAL_KEY_OFFSET
 
 
 @dataclass

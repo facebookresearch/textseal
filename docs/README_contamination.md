@@ -37,7 +37,7 @@ The complete contamination detection workflow consists of three steps:
 
 ### Step 1: Watermark Benchmarks
 ```bash
-python -m textseal.posthoc.main --config configs/watermark_benchmarks_mmlu.yaml
+python -m textseal.watermarking.main --config configs/watermark_benchmarks_mmlu.yaml
 ```
 See [configs/watermark_benchmarks_mmlu.yaml](../configs/watermark_benchmarks_mmlu.yaml) for configuration details.
 

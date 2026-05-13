@@ -22,13 +22,13 @@ def test_imports():
         
         # Test critical internal import (this was the blocker)
         print("  - Testing critical internal import...")
-        from textseal.common.utils.config import cfg_from_cli
-        print("    ✓ textseal.common.utils.config imported successfully")
+        from textseal.utils.config import cfg_from_cli
+        print("    ✓ textseal.utils.config imported successfully")
         
         # Test posthoc modules
         print("  - Testing posthoc modules...")
-        from textseal.posthoc.detector import WmDetector
-        from textseal.posthoc.evaluation import WatermarkEvaluator
+        from textseal.watermarking.detector import WmDetector
+        from textseal.watermarking.evaluation import WatermarkEvaluator
         print("    ✓ Posthoc modules imported successfully")
         
         print("\n✓ All import tests passed!")

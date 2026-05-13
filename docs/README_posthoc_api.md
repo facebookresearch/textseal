@@ -92,7 +92,7 @@ print(f"Score: {wm_eval['score']}")
 **Important:**
 - Watermark detection does not need the LLM (unless entropy thresholds used). Set `enable_detection_only=True` to skip model loading when creating the post-hoc watermarker. If entropy thresholds are used, the model is still needed to compute token probabilities, so ensure the model config is set accordingly.
 - Must specify correct `watermark_type` and `secret_key` matching watermarking settings
-- For CLI batch detection: `python -m textseal.posthoc.main --evaluation.enable_detection_only true`
+- For CLI batch detection: `python -m textseal.watermarking.main --evaluation.enable_detection_only true`
 
 **Returns dict with:**
 - `p_value` (float): Statistical p-value for detection
@@ -127,5 +127,5 @@ textseal-watermark \
 
 You can also run it as a Python module:
 ```bash
-python -m textseal.posthoc.main --help
+python -m textseal.watermarking.main --help
 ```

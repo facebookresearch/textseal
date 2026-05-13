@@ -45,7 +45,7 @@ import torch
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-from textseal.common.utils.config import dataclass_from_dict, cfg_from_cli
+from textseal.utils.config import dataclass_from_dict, cfg_from_cli
 from textseal.wmtraining.lingua.tokenizer import build_tokenizer
 
 logger = logging.getLogger(__name__)

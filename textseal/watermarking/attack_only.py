@@ -12,7 +12,7 @@ manually specify watermark parameters if the field is missing or you want to ove
 
 Usage:
     # Minimal usage - watermark config auto-loaded from input file
-    python -m textseal.posthoc.attack_only \
+    python -m textseal.watermarking.attack_only \
         --input_path output/results.jsonl \
         --wm_text_key wm_text \
         --model.model_name meta-llama/Llama-3.2-1B-Instruct \
@@ -20,7 +20,7 @@ Usage:
         --output_path output/attack_results.jsonl
 
     # Manual watermark config (if not in file or to override)
-    python -m textseal.posthoc.attack_only \
+    python -m textseal.watermarking.attack_only \
         --input_path output/results.jsonl \
         --wm_text_key wm_text \
         --watermark.watermark_type greenlist \
@@ -33,7 +33,7 @@ Usage:
         --output_path output/attack_results.jsonl
 
     # With custom attack parameters
-    python -m textseal.posthoc.attack_only \
+    python -m textseal.watermarking.attack_only \
         --input_path output/results.jsonl \
         --wm_text_key wm_text \
         --model.model_name meta-llama/Llama-3.2-1B-Instruct \
@@ -47,17 +47,18 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
-from omegaconf import OmegaConf
-import torch
+
 import numpy as np
 import random
+import torch
+from omegaconf import OmegaConf
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from textseal.common.utils.config import cfg_from_cli
-from textseal.common.watermark.core import WatermarkConfig
-from textseal.posthoc.config import ModelConfig, AttackConfig, EvaluationConfig
-from textseal.posthoc.attack import AttackSimulator
-from textseal.posthoc.detector import build_detector
-from textseal.posthoc.evaluation import WatermarkEvaluator
+from textseal.utils.config import cfg_from_cli
+from textseal.watermarking.config import AttackConfig, EvaluationConfig, ModelConfig, WatermarkConfig
+from textseal.watermarking.attack import AttackSimulator
+from textseal.watermarking.detector import build_detector
+from textseal.watermarking.evaluation import WatermarkEvaluator
 
 
 @dataclass
@@ -131,8 +132,6 @@ def main():
     
     # Load model and tokenizer for watermark detection
     print(f"Loading model for watermark detection: {cfg.model.model_name}")
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    
     tokenizer = AutoTokenizer.from_pretrained(
         cfg.model.model_name,
         trust_remote_code=True,

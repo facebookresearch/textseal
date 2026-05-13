@@ -14,13 +14,18 @@ import torch
 import numpy as np
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from textseal.common.watermark.core import WatermarkConfig
-from textseal.posthoc.config import ModelConfig, ProcessingConfig, EvaluationConfig, PromptConfig
-from textseal.posthoc.chunking import DocumentChunker
-from textseal.posthoc.evaluation import WatermarkEvaluator
-from textseal.posthoc.text_processing import TextProcessor
-from textseal.posthoc.generator import build_generator
-from textseal.posthoc.detector import build_detector
+from textseal.watermarking.config import (
+    EvaluationConfig,
+    ModelConfig,
+    ProcessingConfig,
+    PromptConfig,
+    WatermarkConfig,
+)
+from textseal.watermarking.chunking import DocumentChunker
+from textseal.watermarking.evaluation import WatermarkEvaluator
+from textseal.watermarking.text_processing import TextProcessor
+from textseal.watermarking.generator import build_generator
+from textseal.watermarking.detector import build_detector
 
 
 def load_tokenizer(model_config: ModelConfig):

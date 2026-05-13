@@ -7,7 +7,7 @@ This module provides a CLI for running post-hoc watermarking with configurable
 parameters for model selection, watermarking settings, and processing options.
 
 Run with direct arguments:
-    python -m textseal.posthoc.main \
+    python -m textseal.watermarking.main \
         --input_path assets/sample_document.txt \
         --model.model_name meta-llama/Llama-3.2-1B-Instruct \
         --model.use_flash_attention False \
@@ -20,7 +20,7 @@ Run with direct arguments:
         --processing.top_p 0.95
 
 Run with beam search:
-    python -m textseal.posthoc.main \
+    python -m textseal.watermarking.main \
         --input_path assets/sample_document.txt \
         --watermark.watermark_type greenlist \
         --processing.beam_width 5 \
@@ -33,10 +33,10 @@ Run with code evaluation by using these arguments:
     --evaluation.enable_code_evaluation true
 
 Run with config file:
-    python -m textseal.posthoc.main --config path/to/config.yaml
+    python -m textseal.watermarking.main --config path/to/config.yaml
 
 Run with config file and overrides:
-    python -m textseal.posthoc.main --config path/to/config.yaml \
+    python -m textseal.watermarking.main --config path/to/config.yaml \
         --watermark.delta 3.0 --processing.temperature 0.8
 """
 
@@ -51,10 +51,11 @@ from omegaconf import OmegaConf
 
 import torch
 
-from textseal.common.utils.config import cfg_from_cli
-from textseal.posthoc.watermarker import PostHocWatermarker
-from textseal.posthoc.attack import AttackSimulator
-from textseal.posthoc.config import (
+from textseal.utils.config import cfg_from_cli
+from textseal.watermarking.watermarker import PostHocWatermarker
+from textseal.watermarking.attack import AttackSimulator
+from textseal.watermarking.config import (
+    WatermarkConfig,
     ModelConfig,
     MODEL_NAMES,
     ProcessingConfig,
@@ -62,7 +63,6 @@ from textseal.posthoc.config import (
     EvaluationConfig,
     AttackConfig,
 )
-from textseal.common.watermark.core import WatermarkConfig
 
 
 @dataclass

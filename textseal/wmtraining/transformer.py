@@ -24,7 +24,7 @@ from textseal.wmtraining.lingua.transformer import (
     TiedLinear,
 )
 
-from textseal.common.watermark.core import WatermarkConfig
+from textseal.watermarking.config import WatermarkConfig
 from textseal.wmtraining.wmloss import wm_cross_entropy, sft_wm_cross_entropy
 
 

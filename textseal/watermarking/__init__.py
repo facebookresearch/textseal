@@ -2,15 +2,15 @@
 
 """Post-hoc watermarking through LLM rephrasing."""
 
-from textseal.posthoc.watermarker import PostHocWatermarker
-from textseal.posthoc.config import (
+from textseal.watermarking.watermarker import PostHocWatermarker
+from textseal.watermarking.config import (
     ModelConfig,
     ProcessingConfig,
     EvaluationConfig,
     PromptConfig,
 )
-from textseal.posthoc.detector import WmDetector
-from textseal.posthoc.evaluation import WatermarkEvaluator
+from textseal.watermarking.detector import WmDetector
+from textseal.watermarking.evaluation import WatermarkEvaluator
 
 __all__ = [
     "PostHocWatermarker",

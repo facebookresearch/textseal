@@ -1,23 +1,44 @@
 # Text Seal
 
 Meta Text Seal is a comprehensive toolkit for LLM generation-time watermarking, post-hoc text watermarking through LLM rephrasing, and contamination detection through watermark radioactivity.
-It is part of the [Meta Seal](https://facebookresearch.github.io/meta-seal) family of watermarking technologies.
-
-[[`post-hoc paper`](https://arxiv.org/abs/2512.16904)] 
-[[`contamination paper`](https://ai.meta.com/research/publications/detecting-benchmark-detection-through-watermarking/)] 
+[[`post-hoc paper`](https://arxiv.org/abs/2512.16904)]
+[[`textseal paper`](https://arxiv.org/abs/2605.12456)]
+[[`contamination paper`](https://ai.meta.com/research/publications/detecting-benchmark-detection-through-watermarking/)]
 [[`meta seal`](https://facebookresearch.github.io/meta-seal)]
 [[`colab`](https://colab.research.google.com/github/facebookresearch/textseal/blob/main/notebooks/textseal_colab.ipynb)]
 
 ## Features
 
+- 🆕 **TextSeal** (NEW): Dual-key generation-time watermarking with speculative decoding and localized detection. See [docs/README_textseal.md](docs/README_textseal.md).
 - 🔏 **Post-hoc Watermarking**: Rephrase text with an LLM while inserting a watermark using generation-time scheme (Green-list/Red-list, Gumbel-max, DipMark, SynthID, MorphMark, WaterMax, etc.).
 - 🧪 **Contamination Detection**: Detect watermarked dataset membership inference through radioactivity.
 - 🚀 **Training Infrastructure**: Distributed pretraining and SFT with contamination injection support for research purposes.
 
+### TextSeal Quick Start
+
+```python
+from textseal.watermarking.config import WatermarkConfig
+from textseal.watermarking.detector import TextSealDetector
+from textseal.watermarking.generator import TextSealGenerator
+
+# Generate watermarked text (dual-key Gumbel-max)
+wm_config = WatermarkConfig(secret_key=42)
+generator = TextSealGenerator(model, tokenizer, wm_config)
+texts = generator.generate([prompt], max_gen_len=200, temperature=0.8, top_p=0.95)
+
+# Detect watermark (entropy-weighted, dual-key fused scoring)
+detector = TextSealDetector(tokenizer, wm_config, model=model)
+result = detector.detect(texts[0])
+print(f"p-value: {result['p_value']:.2e}, detected: {result['detected']}")
+```
+
+See the full [TextSeal README](docs/README_textseal.md) for localized detection, speculative decoding, and more.
+Run `python demo.py` for an end-to-end example.
+
 ## Papers
 
 This codebase implements methods from:
-- **[How Good is Post-Hoc Watermarking With Language Model Rephrasing?](https://arxiv.org/abs/2512.16904)**: 
+- **[How Good is Post-Hoc Watermarking With Language Model Rephrasing?](https://arxiv.org/abs/2512.16904)**:
 Post-hoc watermarking through rephrasing with a watermarked LLM.
 - **[Detecting Benchmark Contamination Through Watermarking](https://ai.meta.com/research/publications/detecting-benchmark-detection-through-watermarking/)**:
 Detecting training data contamination with watermarked benchmarks.
@@ -38,6 +59,14 @@ git clone https://github.com/facebookresearch/textseal.git
 cd textseal
 pip install -e .
 ```
+
+If your Hugging Face assets live in a non-default cache, set:
+
+```bash
+export HF_HOME=/path/to/cache
+```
+
+or pass `model_config=ModelConfig(cache_dir="/path/to/cache")` in Python / `--model.cache_dir /path/to/cache` in the CLI.
 
 ### Python API
 
@@ -116,7 +145,7 @@ pip install -r requirements.txt
 For batch processing or command-line workflows, use the CLI:
 
 ```bash
-python -m textseal.posthoc.main \
+python -m textseal.watermarking.main \
   --input_path assets/sample_document.txt \
   --dump_dir output/ \
   --watermark.watermark_type gumbelmax \
@@ -136,7 +165,7 @@ The contamination detection workflow consists of three steps, each with its own 
 
 ```bash
 # Step 1: Watermark benchmarks with different secret keys
-python -m textseal.posthoc.main --config configs/watermark_benchmarks.yaml
+python -m textseal.watermarking.main --config configs/watermark_benchmarks.yaml
 
 # Step 2: Train model with contaminated watermarked data
 python -m textseal.common.stool script=textseal.wmtraining.train \
@@ -168,7 +197,7 @@ See [docs/README_contamination.md](docs/README_contamination.md) for detailed do
 ```
 textseal/
 ├── textseal/
-│   ├── posthoc/          # Post-hoc watermarking
+│   ├── watermarking/      # Watermarking: post-hoc, TextSeal generation-time, detection
 │   ├── wmtraining/       # Training and evaluation
 │   ├── analysis/         # Analysis tools
 │   └── common/           # Shared utilities (LLM, watermark, config)
@@ -192,9 +221,10 @@ Experiment with different watermarking algorithms and detection methods on your 
 
 ## License
 
-Meta Text Seal is released under the [MIT License](LICENSE).
+This project is licensed under the [Apache License 2.0](LICENSE).
 
-It relies on code and models from other repositories. 
+See the [NOTICE](NOTICE) file for required attributions.
+
 The contamination detection app builds on [Meta Lingua](https://github.com/facebookresearch/lingua) for training, which has a BSD 3-Clause License.
 The models used for post-hoc watermarking are loaded from [Hugging Face](https://huggingface.co/) and are subject to their respective licenses.
 

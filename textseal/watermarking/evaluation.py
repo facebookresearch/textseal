@@ -23,7 +23,7 @@ from typing import Optional
 from sentence_transformers import SentenceTransformer
 import torch
 
-from textseal.posthoc.detector import build_detector
+from textseal.watermarking.detector import build_detector
 
 # HF creates warning when using multiprocessing after tokenizers import
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
