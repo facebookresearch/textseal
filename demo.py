@@ -49,7 +49,7 @@ def main():
 
     # ── 2. Configure watermark ────────────────────────────────────────────
     wm_config = WatermarkConfig(secret_key=args.secret_key)
-    print(f"Keys: A={wm_config.key_a}, B={wm_config.key_b}, alpha={wm_config.gumbel_val}")
+    print(f"Keys: A={wm_config.key_a}, B={wm_config.key_b}, alpha={wm_config.mixing_alpha}")
 
     # ── 3. Generate watermarked text (dual-key) ──────────────────────────
     generator = TextSealGenerator(model, tokenizer, wm_config)

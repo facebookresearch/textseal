@@ -1,6 +1,7 @@
 # Text Seal
 
-Meta Text Seal is a comprehensive toolkit for LLM generation-time watermarking, post-hoc text watermarking through LLM rephrasing, and contamination detection through watermark radioactivity.
+Meta Text Seal is a toolkit for LLM generation-time watermarking, post-hoc text watermarking through LLM rephrasing, and contamination detection through watermark radioactivity.
+
 [[`post-hoc paper`](https://arxiv.org/abs/2512.16904)]
 [[`textseal paper`](https://arxiv.org/abs/2605.12456)]
 [[`contamination paper`](https://ai.meta.com/research/publications/detecting-benchmark-detection-through-watermarking/)]
@@ -14,12 +15,20 @@ Meta Text Seal is a comprehensive toolkit for LLM generation-time watermarking, 
 - 🧪 **Contamination Detection**: Detect watermarked dataset membership inference through radioactivity.
 - 🚀 **Training Infrastructure**: Distributed pretraining and SFT with contamination injection support for research purposes.
 
-### TextSeal Quick Start
+
+
+## TextSeal Quick Start
 
 ```python
 from textseal.watermarking.config import WatermarkConfig
 from textseal.watermarking.detector import TextSealDetector
 from textseal.watermarking.generator import TextSealGenerator
+
+# Load your model and tokenizer (e.g., from Hugging Face)
+from transformers import AutoModelForCausalLM, AutoTokenizer
+model_name = "meta-llama/Llama-3.2-3B-Instruct"
+model = AutoModelForCausalLM.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 # Generate watermarked text (dual-key Gumbel-max)
 wm_config = WatermarkConfig(secret_key=42)
@@ -35,16 +44,8 @@ print(f"p-value: {result['p_value']:.2e}, detected: {result['detected']}")
 See the full [TextSeal README](docs/README_textseal.md) for localized detection, speculative decoding, and more.
 Run `python demo.py` for an end-to-end example.
 
-## Papers
 
-This codebase implements methods from:
-- **[How Good is Post-Hoc Watermarking With Language Model Rephrasing?](https://arxiv.org/abs/2512.16904)**:
-Post-hoc watermarking through rephrasing with a watermarked LLM.
-- **[Detecting Benchmark Contamination Through Watermarking](https://ai.meta.com/research/publications/detecting-benchmark-detection-through-watermarking/)**:
-Detecting training data contamination with watermarked benchmarks.
-
-
-## Quick Start
+## Quick Start for Post-hoc Watermarking
 
 ### Installation
 
@@ -140,19 +141,50 @@ pip install -r requirements.txt
 
 > 💡 For contamination detection experiments (training with contamination injection), you need additional setup. First follow the [Meta Lingua installation instructions](https://github.com/facebookresearch/lingua#installation), then install the requirements above. See [Environment Setup](docs/README_contamination.md#environment-setup) for details.
 
+
 ### Post-hoc Watermarking
 
-For batch processing or command-line workflows, use the CLI:
+Watermark existing text by rephrasing it with a paraphrasing LLM:
 
 ```bash
 python -m textseal.watermarking.main \
   --input_path assets/sample_document.txt \
   --dump_dir output/ \
-  --watermark.watermark_type gumbelmax \
+  --watermark.watermark_type textseal \
   --model.model_name meta-llama/Llama-3.2-3B-Instruct \
   --processing.temperature 1.0 \
   --processing.top_p 0.95
 ```
+
+See the full [Post-hoc Watermarking README](docs/README_posthoc.md) for details on watermark methods, strength tuning, and evaluation.
+
+### Generation-time Watermarking
+
+Generate watermarked text directly from prompts:
+
+```bash
+python -m textseal.watermarking.main \
+  --input_path prompts.jsonl --text_key question \
+  --processing.generation_mode true \
+  --processing.max_gen_len 512 \
+  --model.model_name Qwen/Qwen3.5-2B \
+  --watermark.watermark_type textseal
+```
+
+Supports reasoning mode for thinking models (e.g., Qwen3.5):
+```bash
+python -m textseal.watermarking.main \
+  --input_path prompts.jsonl --text_key question \
+  --processing.generation_mode true \
+  --processing.reasoning.enabled true \
+  --processing.reasoning.max_tokens 200 \
+  --processing.max_gen_len 1024 \
+  --model.model_name Qwen/Qwen3.5-2B \
+  --watermark.watermark_type textseal
+```
+
+See the full [Generation-time Watermarking README](docs/README_generation.md) for reasoning options, configuration, and output format.
+
 Results are saved in `output/` directory as a JSONL file containing original, watermarked text and statistics.
 
 ### Contamination Detection
@@ -197,7 +229,7 @@ See [docs/README_contamination.md](docs/README_contamination.md) for detailed do
 ```
 textseal/
 ├── textseal/
-│   ├── watermarking/      # Watermarking: post-hoc, TextSeal generation-time, detection
+│   ├── watermarking/     # Watermarking: post-hoc, generation-time, detection
 │   ├── wmtraining/       # Training and evaluation
 │   ├── analysis/         # Analysis tools
 │   └── common/           # Shared utilities (LLM, watermark, config)
@@ -229,6 +261,16 @@ The contamination detection app builds on [Meta Lingua](https://github.com/faceb
 The models used for post-hoc watermarking are loaded from [Hugging Face](https://huggingface.co/) and are subject to their respective licenses.
 
 
+## Papers
+
+This codebase implements methods from:
+- **[TextSeal: A Localized LLM Watermark for Provenance & Distillation Protection](https://arxiv.org/abs/2605.12456)**:
+- **[How Good is Post-Hoc Watermarking With Language Model Rephrasing?](https://arxiv.org/abs/2512.16904)**:
+Post-hoc watermarking through rephrasing with a watermarked LLM.
+- **[Detecting Benchmark Contamination Through Watermarking](https://ai.meta.com/research/publications/detecting-benchmark-detection-through-watermarking/)**:
+Detecting training data contamination with watermarked benchmarks.
+
+
 ## Citation
 
 If you use Text Seal in your research, please cite:
@@ -246,4 +288,12 @@ If you use Text Seal in your research, please cite:
   author = {Fernandez, Pierre and Sander, Tom and Elsahar, Hady and Chang, Hongyan and Sou\v{c}ek, Tom\'{a}\v{s} and Lacatusu, Valeriu and Tran, Tuan and Rebuffi, Sylvestre-Alvise and Mourachko, Alexandre},
   year={2025}
 }
+
+@article{sander2026textseal,
+  title={TextSeal: A Localized LLM Watermark for Provenance \& Distillation Protection},
+  author={Sander, Tom and Chang, Hongyan and Sou\v{c}ek, Tom\'{a}\v{s} and Tran, Tuan and Lacatusu, Valeriu and Rebuffi, Sylvestre-Alvise and Mourachko, Alexandre and Parimi, Surya and Ropers, Christophe and Moritz, Rashel and Stark, Vanessa and Elsahar, Hady and Fernandez, Pierre},
+  journal={arXiv preprint arXiv:2605.12456},
+  year={2026}
+}
+
 ```

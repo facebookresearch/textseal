@@ -134,7 +134,7 @@ class PostHocWatermarker:
             # Initialize model
             self.model = load_model(self.model_config)
             if self.verbose:
-                print(f"✓ Model {self.model_config.model_name} loaded successfully, with mesh:\n{self.model.hf_device_map}")
+                print(f"✓ Model {self.model_config.model_name} loaded successfully")
                 if self.model_config.compile_model:
                     print("✓ Model compilation completed")
         
@@ -207,33 +207,77 @@ class PostHocWatermarker:
         context_chunks: list = None
     ) -> str:
         """
-        Rephrase text using watermarked generation.
+        Rephrase text or generate answer using watermarked generation.
         
         Args:
-            text: Original text to rephrase
+            text: Original text to rephrase OR prompt to answer (if generation_mode=True)
             max_gen_len: Maximum generation length (uses config default if None)
             temperature: Sampling temperature (uses config default if None)
             top_p: Top-p sampling parameter (uses config default if None)
             context_chunks: Optional list of previously rephrased chunks for context
         """        
-        # Create rephrasing prompt with optional context.
-        prompt = self.text_processor.create_rephrasing_prompt(text, context_chunks=context_chunks)
+        # Create prompt.
+        reasoning_enabled = self.processing_config.reasoning.enabled
+        prompt = self.text_processor.create_prompt(
+            text,
+            generation_mode=self.processing_config.generation_mode,
+            context_chunks=context_chunks,
+            enable_thinking=reasoning_enabled,
+        )
         # Configure generation parameters.
         max_gen_len = max_gen_len or self.processing_config.max_gen_len
-        generation_limit = min(max_gen_len, len(text) + 500)
+        if self.processing_config.generation_mode:
+            generation_limit = max_gen_len
+        else:
+            # For rephrasing, set generation limit to original length + buffer to prevent runaway generation.
+            generation_limit = min(max_gen_len, len(text) + 500)
         # Generate watermarked text.
+        # Pass reasoning end token to generator for max_tokens enforcement.
+        reasoning_kwargs = {}
+        if reasoning_enabled and self.processing_config.reasoning.max_tokens > 0:
+            end_token = self.processing_config.reasoning.end_token
+            reasoning_kwargs["reasoning_end_token_ids"] = self.tokenizer.encode(
+                end_token, add_special_tokens=False
+            )
+            reasoning_kwargs["max_reasoning_tokens"] = self.processing_config.reasoning.max_tokens
+            # Inject prefill_answer at the start of the answer (after </think>).
+            if self.prompt_config.prefill_answer:
+                reasoning_kwargs["answer_prefill_ids"] = self.tokenizer.encode(
+                    self.prompt_config.prefill_answer, add_special_tokens=False
+                )
         watermarked_text = self.generator.generate(
             prompts = [prompt],
             max_gen_len = generation_limit,
             temperature = temperature or self.processing_config.temperature,
             top_p = top_p or self.processing_config.top_p,
+            **reasoning_kwargs,
         )[0]
         # Clean up the response by removing assistant prefixes and extra text.
         watermarked_text = self.text_processor.clean_generated_text(watermarked_text)
+        # When reasoning is enabled, the prompt template includes the start token (e.g. <think>)
+        # but it's not part of the generated output. Prepend it to reconstruct the full structure.
+        if reasoning_enabled:
+            start_token = self.processing_config.reasoning.start_token
+            if not watermarked_text.startswith(start_token):
+                watermarked_text = start_token + "\n" + watermarked_text
         # Optional code post-processing
         if self.evaluation_config.enable_code_evaluation:
             watermarked_text = self.text_processor.post_process_code(watermarked_text)
         return watermarked_text
+
+    def split_reasoning(self, text: str) -> tuple[str, str]:
+        """Split text into (reasoning_trace, answer) at the reasoning end token."""
+        end_token = self.processing_config.reasoning.end_token
+        if end_token and end_token in text:
+            pos = text.rfind(end_token)
+            reasoning = text[:pos + len(end_token)]
+            answer = text[pos + len(end_token):].strip()
+            # Strip forced prefill from the beginning of the answer.
+            prefill = self.prompt_config.prefill_answer
+            if prefill and answer.startswith(prefill):
+                answer = answer[len(prefill):]
+            return reasoning, answer
+        return "", text
 
     def evaluate_watermark(self, text: str) -> dict:
         return self.evaluator.evaluate_watermark(
@@ -281,17 +325,56 @@ class PostHocWatermarker:
             context_chunks=context_chunks
         )
         t1 = time.time()
-        # Step 2: Evaluate watermark
-        watermark_eval = self.evaluator.evaluate_watermark(
-            watermarked_text,
-            self.detector,
-            self.watermark_config.watermark_type,
-            self.watermark_config.scoring_method,
-            entropy_threshold=self.evaluation_config.entropy_threshold,
-            tokenizer=self.tokenizer,
-            wm_config=self.watermark_config,
-            model=self.model
-        )
+        
+        # Split reasoning trace from answer if reasoning mode is enabled.
+        reasoning_eval = None
+        if self.processing_config.reasoning.enabled:
+            reasoning_trace, answer_text = self.split_reasoning(watermarked_text)
+            # Evaluate watermark on answer only (reasoning trace evaluated separately).
+            eval_text = answer_text if answer_text else watermarked_text
+            watermark_eval = self.evaluator.evaluate_watermark(
+                eval_text,
+                self.detector,
+                self.watermark_config.watermark_type,
+                self.watermark_config.scoring_method,
+                entropy_threshold=self.evaluation_config.entropy_threshold,
+                tokenizer=self.tokenizer,
+                wm_config=self.watermark_config,
+                model=self.model
+            )
+            # Also evaluate reasoning trace watermark.
+            trace_eval = None
+            if reasoning_trace and len(reasoning_trace.strip()) > 10:
+                trace_eval = self.evaluator.evaluate_watermark(
+                    reasoning_trace,
+                    self.detector,
+                    self.watermark_config.watermark_type,
+                    self.watermark_config.scoring_method,
+                    entropy_threshold=self.evaluation_config.entropy_threshold,
+                    tokenizer=self.tokenizer,
+                    wm_config=self.watermark_config,
+                    model=self.model
+                )
+            reasoning_eval = {
+                "reasoning_trace": reasoning_trace,
+                "answer_text": answer_text,
+                "reasoning_tokens": self.count_tokens(reasoning_trace),
+                "answer_tokens": self.count_tokens(answer_text),
+                "reasoning_trace_eval": trace_eval,
+                "answer_eval": watermark_eval,
+            }
+        else:
+            # Step 2: Evaluate watermark
+            watermark_eval = self.evaluator.evaluate_watermark(
+                watermarked_text,
+                self.detector,
+                self.watermark_config.watermark_type,
+                self.watermark_config.scoring_method,
+                entropy_threshold=self.evaluation_config.entropy_threshold,
+                tokenizer=self.tokenizer,
+                wm_config=self.watermark_config,
+                model=self.model
+            )
         t2 = time.time()
         # Step 3: Evaluate quality
         quality_eval = self.evaluator.evaluate_quality(
@@ -339,6 +422,8 @@ class PostHocWatermarker:
                 "tok_ratio": float(wm_toks / orig_toks) if orig_toks > 0 else 0.0,
             },
         }
+        if reasoning_eval is not None:
+            results["reasoning_eval"] = reasoning_eval
         return results
 
     def process_large_text(

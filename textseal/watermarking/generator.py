@@ -95,10 +95,19 @@ class WmGenerator():
         max_gen_len: int,
         temperature: float = 0.8,
         top_p: float = 0.95,
+        reasoning_end_token_ids: list[int] = None,
+        max_reasoning_tokens: int = 0,
+        answer_prefill_ids: list[int] = None,
     ) -> list[str]:
         """
         Generate text from prompts. 
         Adapted from https://github.com/facebookresearch/llama/
+        
+        Args:
+            reasoning_end_token_ids: Token IDs for the reasoning end marker (e.g. </think>).
+                When set with max_reasoning_tokens > 0, forces reasoning to stop.
+            max_reasoning_tokens: Max tokens before forcing reasoning_end_token_ids (0 = unlimited).
+            answer_prefill_ids: Token IDs to force-inject after reasoning ends (start of answer).
         """
         
         bsz = len(prompts)
@@ -123,6 +132,16 @@ class WmGenerator():
             eos_ids = self.eos_id if isinstance(self.eos_id, list) else [self.eos_id]
         eos_reached = torch.zeros(bsz, dtype=torch.bool, device=tokens.device)
         
+        # Reasoning limit tracking: force end_token after max_reasoning_tokens.
+        force_reasoning_end = (reasoning_end_token_ids is not None and max_reasoning_tokens > 0)
+        prefill_ids = answer_prefill_ids or []
+        if force_reasoning_end:
+            reasoning_ended = torch.zeros(bsz, dtype=torch.bool, device=tokens.device)
+            end_ids = reasoning_end_token_ids
+            end_len = len(end_ids)
+            # Track forced-inject queue per sequence.
+            inject_queue: list[list[int]] = [[] for _ in range(bsz)]
+        
         for cur_pos in range(start_pos, total_len):
             outputs = self.model.forward(
                 tokens[:, prev_pos:cur_pos], use_cache=True, past_key_values=past_key_values
@@ -130,6 +149,36 @@ class WmGenerator():
             past_key_values = outputs.past_key_values
             ngram_tokens = tokens[:, cur_pos-self.ngram:cur_pos]
             next_toks = self.sample_next(outputs.logits[:, -1, :], ngram_tokens, temperature, top_p)
+            
+            if force_reasoning_end:
+                for ii in range(bsz):
+                    if reasoning_ended[ii] or eos_reached[ii]:
+                        continue
+                    # Check if inject queue has tokens to force.
+                    if inject_queue[ii]:
+                        next_toks[ii] = inject_queue[ii].pop(0)
+                        if not inject_queue[ii]:
+                            reasoning_ended[ii] = True
+                        continue
+                    # Check if model naturally produced end token.
+                    if end_len > 0 and cur_pos - start_pos >= end_len - 1:
+                        recent = tokens[ii, cur_pos - end_len + 1:cur_pos].tolist() + [next_toks[ii].item()]
+                        if recent == end_ids:
+                            # Inject answer prefill after natural end token.
+                            if prefill_ids:
+                                inject_queue[ii] = list(prefill_ids)
+                            else:
+                                reasoning_ended[ii] = True
+                            continue
+                    # Check if max reasoning tokens reached.
+                    gen_count = cur_pos - len(prompt_tokens[ii]) + 1
+                    if gen_count >= max_reasoning_tokens:
+                        # Force-inject end token sequence + answer prefill.
+                        inject_queue[ii] = list(end_ids) + list(prefill_ids)
+                        next_toks[ii] = inject_queue[ii].pop(0)
+                        if not inject_queue[ii]:
+                            reasoning_ended[ii] = True
+            
             tokens[:, cur_pos] = torch.where(input_text_mask[:, cur_pos], tokens[:, cur_pos], next_toks)
             prev_pos = cur_pos
             
@@ -852,7 +901,7 @@ class TextSealGenerator(WmGenerator):
         super().__init__(model, tokenizer, wm_args)
         self.key_a = wm_args.key_a
         self.key_b = wm_args.key_b
-        self.gumbel_val = wm_args.gumbel_val
+        self.mixing_alpha = wm_args.mixing_alpha
 
     def sample_next(
         self,
@@ -879,7 +928,7 @@ class TextSealGenerator(WmGenerator):
         else:
             r_a, r_b = prf_dual(ngram_tokens, probs_idx, self.key_a, self.key_b)
 
-        use_key_a = torch.rand(logits.shape[0], device=logits.device) < self.gumbel_val
+        use_key_a = torch.rand(logits.shape[0], device=logits.device) < self.mixing_alpha
         r = torch.where(use_key_a.unsqueeze(1), r_a, r_b)
         scores = torch.log(r + 1e-30) / (probs_sort + 1e-30)
         next_token = torch.argmax(scores, dim=-1, keepdim=True)

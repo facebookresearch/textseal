@@ -362,7 +362,7 @@ class TextSealDetector:
         self.ngram = wm_config.ngram
         self.key_a = wm_config.key_a
         self.key_b = wm_config.key_b
-        self.alpha = wm_config.gumbel_val
+        self.alpha = wm_config.mixing_alpha
         self.model = model
         self.scoring_method = scoring_method
 
@@ -658,7 +658,7 @@ def localized_detect(
     smoother_threshold: float = 1.2,
 ) -> LocalizedResult:
     token_ids = tokenizer.encode(text, add_special_tokens=False)
-    alpha = wm_config.gumbel_val
+    alpha = wm_config.mixing_alpha
     base_var = alpha ** 2 + (1 - alpha) ** 2
 
     if len(token_ids) <= wm_config.ngram + 1:

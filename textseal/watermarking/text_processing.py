@@ -28,12 +28,13 @@ class TextProcessor:
         self.model_name = model_name
         self.prompt_config = prompt_config or PromptConfig()
     
-    def get_instruction_template(self, system_message: str, user_message: str) -> str:
+    def get_instruction_template(self, system_message: str, user_message: str, enable_thinking: bool = False) -> str:
         """
         Format message using HuggingFace chat template or fallback format.
         Args:
             system_message: System instruction
             user_message: User input
+            enable_thinking: If True, enable thinking mode in chat template (for models that support it)
         Returns:
             Properly formatted instruction prompt
         """
@@ -56,11 +57,20 @@ class TextProcessor:
                 if system_message:
                     messages.append({"role": "system", "content": system_message})
                 messages.append({"role": "user", "content": user_message})
-            return self.tokenizer.apply_chat_template(
-                messages, 
-                tokenize=False, 
-                add_generation_prompt=True
-            )
+            try:
+                return self.tokenizer.apply_chat_template(
+                    messages, 
+                    tokenize=False, 
+                    add_generation_prompt=True,
+                    enable_thinking=enable_thinking,
+                )
+            except TypeError:
+                # Tokenizer template doesn't support enable_thinking kwarg.
+                return self.tokenizer.apply_chat_template(
+                    messages, 
+                    tokenize=False, 
+                    add_generation_prompt=True
+                )
         else:
             # Fallback: simple format
             print("Using fallback instruction template")
@@ -85,6 +95,17 @@ class TextProcessor:
             if token in generated_text:
                 generated_text = generated_text.split(token, 1)[-1]
                 break
+        
+        # Remove EOS/end-of-turn tokens that may appear anywhere in text.
+        eos_tokens = [
+            "<|im_end|>",
+            "<|endoftext|>",
+            "<|eot_id|>",
+            "<end_of_turn>",
+        ]
+        for token in eos_tokens:
+            generated_text = generated_text.replace(token, "")
+        
         return generated_text.strip()
 
     def post_process_code(self, code: str) -> str:
@@ -111,48 +132,53 @@ class TextProcessor:
 
         return code
     
-    def create_rephrasing_prompt(self, text: str, context_chunks: list = None) -> str:
+    
+    def create_prompt(
+        self,
+        text: str,
+        generation_mode: bool = False,
+        context_chunks: list = None,
+        enable_thinking: bool = False,
+    ) -> str:
         """
-        Create a standardized rephrasing prompt for the given text.
+        Create prompt for generation or rephrase mode.
+        
         Args:
-            text: Text to be rephrased
-            context_chunks: Optional list of previously rephrased chunks for context
-        Returns:
-            Formatted prompt for rephrasing
+            text: Text to rephrase OR prompt/question to answer
+            generation_mode: True = answer prompts, False = rephrase text
+            context_chunks: Previous chunks for context (rephrase mode only)
+            enable_thinking: If True, enable thinking mode in chat template
         """
-        # Build system message from config
-        system_message = self.prompt_config.system_message
-        
-        # Add custom instruction if provided
-        if self.prompt_config.custom_instruction:
-            system_message += f" {self.prompt_config.custom_instruction}"
-        
-        # Add style/format preservation instructions
-        additional_instructions = []
-        if self.prompt_config.preserve_style:
-            additional_instructions.append("Preserve the original writing style and tone.")
-        if self.prompt_config.preserve_length:
-            additional_instructions.append("Keep the rephrased text approximately the same length as the original.")
-        if self.prompt_config.preserve_format:
-            additional_instructions.append("Maintain the original formatting, including line and paragraph breaks and structure.")
-        
-        if additional_instructions:
-            system_message += " " + " ".join(additional_instructions)
-        
-        # Add context-aware instruction if context chunks are provided
-        if context_chunks and len(context_chunks) > 0:
-            system_message += " Use the previously rephrased chunks below as context to maintain narrative coherence, but only rephrase the current chunk marked as 'TEXT TO REPHRASE'."
-        
-        # Format user message using template
-        if context_chunks and len(context_chunks) > 0:
-            # Include context chunks in the prompt
-            context_text = "\n\n---\n\n".join([f"Previous chunk {i+1}:\n{chunk}" for i, chunk in enumerate(context_chunks)])
-            user_message = f"{context_text}\n\n---\n\nTEXT TO REPHRASE:\n{text}\n\n---\n\nPlease rephrase only the text marked as 'TEXT TO REPHRASE' above, using the previous chunks for context to maintain coherence:"
+        if generation_mode:
+            system_message = self.prompt_config.system_message  # Empty by default for generation
+            user_message = text  # Use input text directly as prompt for generation
         else:
-            user_message = self.prompt_config.user_message_template.format(text=text)
+            # Rephrase mode: rewrite existing text
+            system_message = self.prompt_config.system_message or (
+                "You are a text rephrasing assistant. "
+                "Rephrase the given text while preserving its original meaning, style, and structure. "
+                "Output only the rephrased text, with no explanations."
+            )
+            # Add preservation instructions
+            extras = []
+            if self.prompt_config.preserve_style:
+                extras.append("Preserve the original writing style and tone.")
+            if self.prompt_config.preserve_length:
+                extras.append("Keep approximately the same length.")
+            if self.prompt_config.preserve_format:
+                extras.append("Maintain the original formatting.")
+            if extras:
+                system_message += " " + " ".join(extras)
+            
+            # Handle context chunks for long documents
+            if context_chunks:
+                system_message += " Use the previous chunks for context, but only rephrase the current chunk."
+                context_text = "\n\n---\n\n".join([f"Previous chunk {i+1}:\n{c}" for i, c in enumerate(context_chunks)])
+                user_message = f"{context_text}\n\n---\n\nTEXT TO REPHRASE:\n{text}"
+            else:
+                user_message = f"Please rephrase the following text:\n\n{text}"
         
-        # Create final
-        prompt = self.get_instruction_template(system_message, user_message)
-        prompt += self.prompt_config.prefill_answer
-
+        prompt = self.get_instruction_template(system_message, user_message, enable_thinking=enable_thinking)
+        if self.prompt_config.prefill_answer and not enable_thinking:
+            prompt += self.prompt_config.prefill_answer
         return prompt

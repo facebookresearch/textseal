@@ -81,8 +81,9 @@ watermarker = PostHocWatermarker(
 
 | Method | Strength Control | Quality Impact | Detection | Recommended For |
 |--------|------------------|----------------|-----------|-----------------|
+| `textseal` | `mixing_alpha`, `ngram` | Low | **Strongest** | **Recommended (dual-key)** |
 | `greenlist` | `delta` (e.g., 1.0-5.0) | Medium | Strong | Classic, tunable |
-| `gumbelmax` | `temperature` (e.g., 0.7-1.5) | Low | Strong | **General use** |
+| `gumbelmax` | `temperature` (e.g., 0.7-1.5) | Low | Strong | General use |
 | `dipmark` | `alpha` (e.g., 0.05-0.45) | Low | Moderate | Distribution-preserving |
 | `synthid` | `depth` (e.g., 2-30) | Low | Strong | Tournament-based |
 | `morphmark` | `k_morphmark`, `p_0` | Adaptive | Strong | Adaptive strength |
@@ -90,6 +91,9 @@ watermarker = PostHocWatermarker(
 
 **CLI Examples:**
 ```bash
+# TextSeal (recommended, dual-key Gumbel-max)
+python -m textseal.watermarking.main --watermark.watermark_type textseal --watermark.mixing_alpha 0.5 --watermark.ngram 2 --watermark.scoring_method v1 ...
+
 # Greenlist (classic, tunable strength)
 python -m textseal.watermarking.main --watermark.watermark_type greenlist --watermark.delta 2.5 --watermark.gamma 0.5 ...
 
@@ -281,7 +285,7 @@ You can pass a YAML file via `--config` and/or override any key with nested CLI 
 
 #### WatermarkConfig
 
-- `watermark_type` (str): `greenlist`, `gumbelmax`, `dipmark`, `synthid`, `morphmark`, `watermax`, or `none` (vanilla).
+- `watermark_type` (str): `textseal`, `greenlist`, `gumbelmax`, `dipmark`, `synthid`, `morphmark`, `watermax`, or `none` (vanilla).
 - `delta` (float): Strength of bias toward the greenlist (higher = stronger watermark; too high can hurt quality).
 - `gamma` (float in [0,1]): Fraction of vocab in the greenlist (typical 0.25–0.5).
 - `ngram` (int): N-gram window for greenlist decisions (1–3 common).
@@ -301,6 +305,7 @@ You can pass a YAML file via `--config` and/or override any key with nested CLI 
   - Use v1/v2 for cleaner p-values by avoiding repeated patterns; use v0 for raw token counts.
 
 **Available algorithms**:
+- `textseal` — Dual-key Gumbel-max watermark with entropy-weighted fused scoring. Uses two secret keys (A and B) with configurable mixing via `mixing_alpha`. Strongest detection with minimal quality impact. Recommended for most use cases.
 - `greenlist` — Greenlist-based watermarking from Kirchenbauer et al. (2023); tunable via `delta` (strength) and `gamma` (greenlist size). Requires `method: binary`.
 - `gumbelmax` — Uses a different sampling; control the strength with `temperature`. Requires `method: uniform`.
 - `dipmark` — Distribution-preserving watermark (DiP); reweights the top-p mass using an `alpha` threshold after sorting by probability. Uses `method: uniform` during generation, and same detection as Green-list/Red-list.

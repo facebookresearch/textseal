@@ -4,7 +4,7 @@
 Configuration dataclasses for post-hoc watermarking system.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -47,11 +47,16 @@ MODEL_NAMES = [
     "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
-    # Qwen reasoning models
+    # QwenQ models
     "Qwen/QwQ-32B-Preview",
     "Qwen/QwQ-32B",
     "Qwen/Qwen3-4B-Thinking-2507",
     "Qwen/Qwen3-30B-A3B-Thinking-2507",
+    # Qwen 3.5
+    "Qwen/Qwen3.5-0.8B",
+    "Qwen/Qwen3.5-2B",
+    "Qwen/Qwen3.5-4B",
+    "Qwen/Qwen3.5-9B",
     # Mistral reasoning models
     "mistralai/Ministral-3-14B-Reasoning-2512",
     "mistralai/Ministral-3-3B-Reasoning-2512",
@@ -99,7 +104,7 @@ class WatermarkConfig:
 
     # TextSeal-specific parameters
     secret_key_b: int = -1  # Key B (-1 = auto: secret_key + DUAL_KEY_OFFSET)
-    gumbel_val: float = 0.5  # Probability of using Key A per token (0.5 = equal)
+    mixing_alpha: float = 0.5  # Probability of using Key A per token (0.5 = equal)
 
     @property
     def key_a(self) -> int:
@@ -121,10 +126,20 @@ class ModelConfig:
 
 
 @dataclass
+class ReasoningConfig:
+    """Configuration for reasoning mode (model thinks before answering)."""
+    enabled: bool = False  # Enable reasoning mode (uses enable_thinking in chat template)
+    start_token: str = "<think>"  # Token marking start of reasoning trace
+    end_token: str = "</think>"  # Token marking end of reasoning trace (for splitting output)
+    max_tokens: int = 0  # Max reasoning tokens before forcing end_token (0 = unlimited)
+
+
+@dataclass
 class ProcessingConfig:
     max_gen_len: int = 1024  # max generation length
     temperature: float = 0.9  # sampling temperature
     top_p: float = 0.95  # top-p sampling
+    generation_mode: bool = False  # False = rephrase mode, True = generation mode (use text as prompt)
     target_chunk_size: int = 2000  # target chunk size (chars)
     max_chunk_size: int = 1024  # max chunk size (tokens)
     overlap_ratio: float = 0.15  # chunk overlap ratio (0.0-1.0)
@@ -139,18 +154,15 @@ class ProcessingConfig:
     candidates_per_beam: Optional[int] = None  # Candidates per beam (default: beam_width)
     stochastic_beam: bool = False  # Stochastic (True) vs deterministic (False) beam search
     use_biased_for_scoring: bool = False  # Score with watermarked (True) vs original (False) model
+    
+    # Reasoning
+    reasoning: ReasoningConfig = field(default_factory=ReasoningConfig)
 
 
 @dataclass
 class PromptConfig:
-    system_message: str = (
-        "You are a text rephrasing assistant. "
-        "You must rephrase the given text while strictly preserving its original meaning, style, and structure. "
-        "You must output only the rephrased text, with no explanations or commentary. "
-    )  # for rephrasing
-    user_message_template: str = "Please rephrase the following text:\n\n{text}"  # use {text} placeholder
+    system_message: str = ""  # Custom system message override (auto-generated per mode if empty)
     prefill_answer: str = ""  # prefill answer in the prompt
-    custom_instruction: str = ""  # optional extra instruction
     preserve_style: bool = True  # emphasize style preservation
     preserve_length: bool = False  # preserve approximate length
     preserve_format: bool = True  # preserve formatting

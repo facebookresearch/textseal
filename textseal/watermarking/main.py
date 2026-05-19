@@ -232,9 +232,25 @@ def main():
         times = line_results.get('times', {})
         wm_eval = line_results.get('wm_eval', {})
         qual_eval = line_results.get('quality', {})
+        reasoning_eval = line_results.get('reasoning_eval', None)
         
-        # Check if multi-test mode
-        if isinstance(wm_eval, dict) and "tests" in wm_eval:
+        # Print line summary
+        if reasoning_eval is not None:
+            answer_eval = reasoning_eval.get("answer_eval", {}) or {}
+            trace_eval = reasoning_eval.get("reasoning_trace_eval", {}) or {}
+            print(json.dumps({
+                "line": line_num,
+                "wm_score": answer_eval.get("score"),
+                "pvalue": answer_eval.get("p_value"),
+                "think_pvalue": trace_eval.get("p_value"),
+                "reasoning_tokens": reasoning_eval.get("reasoning_tokens"),
+                "answer_tokens": reasoning_eval.get("answer_tokens"),
+                "orig_tokens": stats.get("orig_toks"),
+                "wm_tokens": stats.get("wm_toks"),
+                "tps": times.get("tps"),
+                "semantic_similarity": qual_eval.get("semantic_similarity"),
+            }, ensure_ascii=False))
+        elif isinstance(wm_eval, dict) and "tests" in wm_eval:
             # Multi-test mode: print results for each test
             primary = wm_eval.get("primary", {})
             print(json.dumps({
