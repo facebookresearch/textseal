@@ -597,57 +597,6 @@ class LocalizedResult:
     token_labels: list[int]
 
 
-def _geometric_cover_search(
-    scores: np.ndarray,
-    min_length: int = 50,
-    base_variance: float = 1.0,
-) -> tuple[int, int, float]:
-    n = len(scores)
-    prefix = np.zeros(n + 1)
-    for ii in range(n):
-        prefix[ii + 1] = prefix[ii] + scores[ii]
-
-    best_start, best_end, best_z = 0, n, float("-inf")
-    max_power = int(np.floor(np.log2(n))) if n > 0 else 0
-    for power in range(max_power + 1):
-        length = 2 ** power
-        if length < min_length:
-            continue
-        stride = max(1, length // 2)
-        for start in range(0, n - length + 1, stride):
-            end = start + length
-            raw_sum = prefix[end] - prefix[start]
-            z_score = (raw_sum - length) / np.sqrt(length * base_variance)
-            if z_score > best_z:
-                best_start, best_end, best_z = start, end, z_score
-    return best_start, best_end, best_z
-
-
-def _count_tests(n: int, min_length: int) -> int:
-    total = 0
-    for power in range(int(np.floor(np.log2(n))) + 1 if n > 0 else 0):
-        length = 2 ** power
-        if length < min_length or length > n:
-            continue
-        stride = max(1, length // 2)
-        total += (n - length) // stride + 1
-    return max(1, total)
-
-
-def _boundary_smoother(scores: np.ndarray, window: int = 20, threshold: float = 1.2) -> list[int]:
-    n = len(scores)
-    if n == 0:
-        return []
-    labels = [0] * n
-    half = window // 2
-    for ii in range(n):
-        start = max(0, ii - half)
-        end = min(n, ii + half + 1)
-        if np.mean(scores[start:end]) > threshold:
-            labels[ii] = 1
-    return labels
-
-
 def localized_detect(
     text: str,
     tokenizer,
@@ -657,6 +606,20 @@ def localized_detect(
     smoother_window: int = 20,
     smoother_threshold: float = 1.2,
 ) -> LocalizedResult:
+    """Localized detection: adaptive ensemble of global, single-region, and
+    multi-region tests with proper Bonferroni correction.
+
+    Delegates to textseal.watermarking.localized_detection.adaptive_ensemble_detection,
+    which implements the algorithm described in Section 3.3 of the TextSeal paper
+    (geometric cover search + greedy multi-region extraction + min-of-strategies
+    with flat Bonferroni-k).
+
+    This function builds the dual-key fused scores and per-token entropy weights
+    expected by the ensemble, then wraps the result back into the LocalizedResult
+    dataclass that the demo consumes.
+    """
+    from textseal.watermarking.localized_detection import adaptive_ensemble_detection
+
     token_ids = tokenizer.encode(text, add_special_tokens=False)
     alpha = wm_config.mixing_alpha
     base_var = alpha ** 2 + (1 - alpha) ** 2
@@ -664,6 +627,7 @@ def localized_detect(
     if len(token_ids) <= wm_config.ngram + 1:
         return LocalizedResult(1.0, 1.0, 1.0, False, 0, 0, 0, [])
 
+    # ---- Entropies (per token position) ----
     entropies = None
     if model is not None:
         tokens_t = torch.tensor([token_ids], device=next(model.parameters()).device)
@@ -673,18 +637,16 @@ def localized_detect(
             probs = log_probs.exp()
             entropies = (-(probs * log_probs).sum(dim=-1)).squeeze(0)[:-1].tolist()
 
-    fused_scores = []
-    scored_entropies = []
-    seen = set()
+    # ---- Dual-key fused scores at every scoring position (NO dedup here);
+    # adaptive_ensemble_detection will dedup as part of Phase B verification. ----
     config_a = replace(wm_config, secret_key=wm_config.key_a)
     config_b = replace(wm_config, secret_key=wm_config.key_b)
-    for pos in range(wm_config.ngram + 1, len(token_ids)):
+    fused_scores: list[float] = []
+    scored_entropies: list[float] = []
+    start_pos = wm_config.ngram + 1
+    for pos in range(start_pos, len(token_ids)):
         ctx = token_ids[pos - wm_config.ngram:pos]
         tok = token_ids[pos]
-        dedup_key = tuple(ctx) + (tok,)
-        if dedup_key in seen:
-            continue
-        seen.add(dedup_key)
         ctx_tensor = torch.tensor([ctx])
         r_a = score_listed_tokens(ctx_tensor, config_a, [tok])[0, 0]
         r_b = score_listed_tokens(ctx_tensor, config_b, [tok])[0, 0]
@@ -692,22 +654,59 @@ def localized_detect(
         if entropies is not None and (pos - 1) < len(entropies):
             scored_entropies.append(entropies[pos - 1])
 
-    n_tokens = len(fused_scores)
-    if n_tokens == 0:
+    if not fused_scores:
         return LocalizedResult(1.0, 1.0, 1.0, False, 0, 0, 0, [])
 
-    scores = np.array(fused_scores)
-    global_sum = np.sum(scores)
-    global_p = float(special.gammaincc(n_tokens / base_var, global_sum / base_var))
-    start, end, _ = _geometric_cover_search(scores, min_length, base_var)
-    region_sum = np.sum(scores[start:end])
-    region_len = end - start
-    raw_p = float(special.gammaincc(region_len / base_var, region_sum / base_var))
-    localized_p = min(1.0, raw_p * _count_tests(n_tokens, min_length))
-    final_p = min(1.0, min(global_p, localized_p) * 2)
-    labels = _boundary_smoother(scores, smoother_window, smoother_threshold)
-    return LocalizedResult(global_p, localized_p, final_p, final_p < 0.01, start, end, n_tokens, labels)
-                
+    # ---- Entropy weights (normalized within sequence) — paper Eq. (4) ----
+    weights = None
+    if scored_entropies and len(scored_entropies) == len(fused_scores):
+        e_min = min(scored_entropies)
+        e_max = max(scored_entropies)
+        if e_max - e_min < 1e-6:
+            e_min, e_max = 0.0, 5.0
+        weights = [
+            TextSealDetector._entropy_weight(e, e_min, e_max) for e in scored_entropies
+        ]
+
+    # ---- Delegate to the full adaptive ensemble (Section 3.3 of the paper) ----
+    # Pass the FULL token_ids so adaptive_ensemble_detection can dedup correctly:
+    # by convention, scores[i] corresponds to tokens[i + ngram + 1].
+    result = adaptive_ensemble_detection(
+        scores=fused_scores,
+        alpha=0.01,
+        min_length=min_length,
+        null_mean=1.0,
+        tokens=token_ids,
+        ngram=wm_config.ngram,
+        scoring_method=wm_config.scoring_method,
+        weights=weights,
+        hybrid_mode=True,
+        enable_stage2=True,
+        smoother_window=smoother_window,
+        smoother_threshold=smoother_threshold,
+        base_variance=base_var,
+    )
+
+    # ---- Re-emit best single-region [start, end) for the existing demo UI ----
+    if result.regions:
+        # regions = [(start, end, pvalue), ...]; pick the one with the lowest pvalue.
+        best = min(result.regions, key=lambda r: r[2])
+        region_start, region_end = int(best[0]), int(best[1])
+    else:
+        region_start, region_end = 0, 0
+
+    return LocalizedResult(
+        global_pvalue=float(result.global_pvalue),
+        localized_pvalue=float(result.localized_pvalue),
+        final_pvalue=float(result.final_pvalue),
+        detected=bool(result.detection),
+        region_start=region_start,
+        region_end=region_end,
+        n_tokens=len(fused_scores),
+        token_labels=list(result.token_labels),
+    )
+
+
 def build_detector(
     tokenizer: PreTrainedTokenizer,
     wm_args: WatermarkConfig,
