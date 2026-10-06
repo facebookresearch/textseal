@@ -80,6 +80,8 @@ class CLIArgs:
     text_key: str = "text"  # Key to extract text from JSONL lines
     processing_method: str = "auto"  # Method for processing documents
     num_lines: int = -1  # Number of lines to process from input file (if jsonl)
+    start_line: int = 0  # Skip this many leading jsonl lines
+    batch_size: int = 1  # Number of jsonl lines generated per forward pass
     max_input_tokens: int = -1  # Maximum tokens to use from input text (-1 = no limit)
     
     # Verbose output settings
@@ -137,7 +139,7 @@ def main():
     os.makedirs(cfg.dump_dir, exist_ok=True)
     print(f"Output directory: {cfg.dump_dir}")
     
-    def process_line(original_text, line_num, aux_data=None, print_chunks=True):
+    def process_line(original_text, line_num, aux_data=None, print_chunks=True, **process_kwargs):
         """
         Process a single line/document with watermarking.
         
@@ -146,6 +148,7 @@ def main():
             line_num: Line number for logging
             aux_data: Optional auxiliary data to pass to watermarker
             print_chunks: Whether to print per-chunk metrics (for adaptive chunking)
+            process_kwargs: Forwarded to watermarker.process_text
         
         Returns:
             Dictionary containing processing results
@@ -226,7 +229,8 @@ def main():
                 max_gen_len=cfg.processing.max_gen_len,
                 temperature=cfg.processing.temperature,
                 top_p=cfg.processing.top_p,
-                aux_data=aux_data
+                aux_data=aux_data,
+                **process_kwargs,
             )
         stats = line_results.get('stats', {})
         times = line_results.get('times', {})
@@ -406,12 +410,13 @@ def main():
         num_successful = 0
         num_failed = 0
 
-        with open(cfg.input_path, 'r', encoding='utf-8') as in_f, \
-             open(output_jsonl_path, 'w', encoding='utf-8') as out_f:
-
+        items = []
+        with open(cfg.input_path, 'r', encoding='utf-8') as in_f:
             for line in in_f:
                 line_num += 1
-                if cfg.num_lines > 0 and line_num >= cfg.num_lines:
+                if line_num < cfg.start_line:
+                    continue
+                if cfg.num_lines > 0 and line_num >= cfg.start_line + cfg.num_lines:
                     break
                 line = line.strip()
 
@@ -422,35 +427,59 @@ def main():
                     print(f"Error line {line_num}: {e}")
                     num_failed += 1
                     continue
+                items.append((line_num, original_text, data))
 
-                # try:
-                line_results = process_line(original_text, line_num, aux_data=data, print_chunks=True)
-                
-                # Save to JSONL with full structure:
-                # - Original input data fields preserved
-                # - wm_text, orig_text: the texts
-                # - wm_eval: watermark evaluation results
-                #   * Single test: {score, p_value, det, ...}
-                #   * Multi-test: {tests: [{test_name, watermark_type, entropy_threshold, score, p_value, det, ...}, ...], primary: {...}}
-                # - quality: quality metrics
-                # - stats: token counts, ratios
-                # - times: timing information
-                # - watermark_config: watermark parameters used (for later attack/detection)
-                line_results = {
-                    **data, 
-                    "line": line_num, 
-                    **line_results,
-                    "watermark_config": asdict(cfg.watermark)
-                }
-                out_f.write(json.dumps(line_results, ensure_ascii=False) + '\n')
-                out_f.flush()
-                num_successful += 1
+        with open(output_jsonl_path, 'w', encoding='utf-8') as out_f:
+            for start in range(0, len(items), cfg.batch_size):
+                batch = items[start:start + cfg.batch_size]
+                # Batched generation; detection-only, truncated and chunked texts stay per line.
+                batched = (
+                    cfg.batch_size > 1
+                    and not cfg.evaluation.enable_detection_only
+                    and cfg.max_input_tokens <= 0
+                    and all(len(watermarker.tokenizer.encode(t)) <= watermarker.processing_config.max_chunk_size for _, t, _ in batch)
+                )
+                process_kwargs = [{}] * len(batch)
+                if batched:
+                    t0 = time.time()
+                    wm_texts = watermarker.rephrase_with_watermark(
+                        [t for _, t, _ in batch],
+                        max_gen_len=cfg.processing.max_gen_len,
+                        temperature=cfg.processing.temperature,
+                        top_p=cfg.processing.top_p,
+                    )
+                    t_rephrase = (time.time() - t0) / len(batch)
+                    process_kwargs = [{"watermarked_text": w, "t_rephrase": t_rephrase} for w in wm_texts]
 
-                # except Exception as e:
-                #     print(f"Error processing line {line_num}: {e}")
-                #     import traceback
-                #     traceback.print_exc()
-                #     num_failed += 1
+                for (line_num, original_text, data), kwargs in zip(batch, process_kwargs):
+                    # try:
+                    line_results = process_line(original_text, line_num, aux_data=data, print_chunks=True, **kwargs)
+                    
+                    # Save to JSONL with full structure:
+                    # - Original input data fields preserved
+                    # - wm_text, orig_text: the texts
+                    # - wm_eval: watermark evaluation results
+                    #   * Single test: {score, p_value, det, ...}
+                    #   * Multi-test: {tests: [{test_name, watermark_type, entropy_threshold, score, p_value, det, ...}, ...], primary: {...}}
+                    # - quality: quality metrics
+                    # - stats: token counts, ratios
+                    # - times: timing information
+                    # - watermark_config: watermark parameters used (for later attack/detection)
+                    line_results = {
+                        **data, 
+                        "line": line_num, 
+                        **line_results,
+                        "watermark_config": asdict(cfg.watermark)
+                    }
+                    out_f.write(json.dumps(line_results, ensure_ascii=False) + '\n')
+                    out_f.flush()
+                    num_successful += 1
+
+                    # except Exception as e:
+                    #     print(f"Error processing line {line_num}: {e}")
+                    #     import traceback
+                    #     traceback.print_exc()
+                    #     num_failed += 1
         
     elif file_extension == ".txt":
         # Read the text file

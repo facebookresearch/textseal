@@ -53,6 +53,8 @@ def _hash(w_weighted, x_k, sk, device):
             f"sk tensor must have the same shape as x_k. Got sk.shape={sk.shape}, x_k.shape={x_k.shape}"
         )
         sk_tensor = sk.to(device).long()
+    if w_weighted.dim() < x_k.dim():  # (bsz,) windows against (bsz, vocab) tokens
+        w_weighted = w_weighted.unsqueeze(-1)
     h = (w_weighted + _P2 * x_k.long() + _P3 * sk_tensor) * _P4
     h = h * _MIXING_PRIME
     h = h ^ (h >> _MIXING_SHIFT)
