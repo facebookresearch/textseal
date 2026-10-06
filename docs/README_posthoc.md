@@ -293,6 +293,7 @@ You can pass a YAML file via `--config` and/or override any key with nested CLI 
 - `method` (str): hashing/PRF family used by the algorithm, typically `binary` or `uniform`.
 - `alpha` (float): DipMark parameter controlling the cumulative-mass split for reweighting.
 - `depth` (int): SynthID tournament depth controlling how many iterative reweighting layers are applied.
+- `key_routing` (bool): `greenlist`/`synthid` only. Routes each token to key A (`secret_key`) or key B (`secret_key_b`) with probability `mixing_alpha`, as `textseal` does; detection fuses both keys.
 - `k_morphmark` (float): MorphMark adaptive strength factor (default 1.30); controls how strongly watermark strength adapts to green token probability.
 - `p_0` (float): MorphMark threshold parameter (default 0.15); minimum green probability to apply adaptive watermarking.
 - `chunk_size` (int): WaterMax parameter L - number of tokens per draft sequence (default 4).

@@ -102,9 +102,10 @@ class WatermarkConfig:
     # Detection parameters
     scoring_method: str = "v2"  # "v1" (dedup by window), "v2" (dedup by window+target), "none" or others (no dedup)
 
-    # TextSeal-specific parameters
+    # Dual-key parameters (textseal; greenlist/synthid with key_routing)
     secret_key_b: int = -1  # Key B (-1 = auto: secret_key + DUAL_KEY_OFFSET)
     mixing_alpha: float = 0.5  # Probability of using Key A per token (0.5 = equal)
+    key_routing: bool = False  # greenlist/synthid: route each token to key A or B, as textseal does
 
     @property
     def key_a(self) -> int:

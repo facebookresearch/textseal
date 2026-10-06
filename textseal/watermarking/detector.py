@@ -227,6 +227,9 @@ class GreenlistDetector(WmDetector):
         # Use the unified scoring function for the GreenlistDetector
         ngram_tokens_tensor = torch.tensor(ngram_tokens).unsqueeze(0)  # Shape: (1, ngram)
         scores = score_listed_tokens(ngram_tokens_tensor, self.wm_args, [token_id])
+        if self.wm_args.key_routing:  # fused score: keys A and B weighted by their routing probabilities
+            scores_b = score_listed_tokens(ngram_tokens_tensor, replace(self.wm_args, secret_key=self.wm_args.key_b), [token_id])
+            scores = self.wm_args.mixing_alpha * scores + (1 - self.wm_args.mixing_alpha) * scores_b
         return scores[0, 0].item()
                 
     def get_pvalue(self, score: int, ntoks: int, eps: float):
@@ -235,6 +238,16 @@ class GreenlistDetector(WmDetector):
         Mid-p = P(X > score) + 0.5 * P(X = score)
         This improves uniformity of p-values under H0 for discrete distributions.
         """
+        if self.wm_args.key_routing:
+            a = self.wm_args.mixing_alpha
+            if a == 0.5:  # 2 * score = X_A + X_B ~ Binomial(2 * ntoks, gamma): exact test below
+                score, ntoks = 2 * score, 2 * ntoks
+            else:  # weighted sum of two binomials: z-test
+                if ntoks == 0:
+                    return 1.0
+                var = (a ** 2 + (1 - a) ** 2) * self.gamma * (1 - self.gamma)
+                z_score = (score - self.gamma * ntoks) / np.sqrt(ntoks * var)
+                return max(1 - special.ndtr(z_score), eps)
         # P(X >= score) using upper tail
         pvalue_upper = special.betainc(score, 1 + ntoks - score, self.gamma)
         # P(X = score) using binomial PMF
@@ -306,15 +319,25 @@ class SynthidDetector(WmDetector):
         score_depth = 1 if token_id in greenlist_depth else 0 
         """
         ngram_tokens_tensor = torch.tensor(ngram_tokens).unsqueeze(0)  # Shape: (1, ngram)
-        scores = score_listed_tokens(
-            ngram_tokens_tensor, 
-            self.wm_args, 
-            [token_id + SYNTHID_ROUND_STRIDE * dd for dd in range(0, self.wm_args.depth)]
-        ) # Shape: (1, depth)
+        listed_tokens = [token_id + SYNTHID_ROUND_STRIDE * dd for dd in range(0, self.wm_args.depth)]
+        scores = score_listed_tokens(ngram_tokens_tensor, self.wm_args, listed_tokens) # Shape: (1, depth)
+        if self.wm_args.key_routing:  # fused score: keys A and B weighted by their routing probabilities
+            scores_b = score_listed_tokens(ngram_tokens_tensor, replace(self.wm_args, secret_key=self.wm_args.key_b), listed_tokens)
+            scores = self.wm_args.mixing_alpha * scores + (1 - self.wm_args.mixing_alpha) * scores_b
         weighted_score = (scores[0] * self.weights).sum() # sum over depth
         return weighted_score.item()
                 
     def get_pvalue(self, score: float, ntoks: int, eps: float):
+        if self.wm_args.key_routing:
+            a = self.wm_args.mixing_alpha
+            if a == 0.5 and not self.weighted:  # 2 * score ~ Binomial(2 * ntoks * depth, gamma): exact test below
+                score, ntoks = 2 * score, 2 * ntoks
+            else:  # weighted sum: z-test
+                if ntoks == 0:
+                    return 1.0
+                var = (a ** 2 + (1 - a) ** 2) * self.null_variance
+                z_score = (score - self.null_mean * ntoks) / np.sqrt(ntoks * var)
+                return max(1 - special.ndtr(z_score), eps)
         if not self.weighted:
             # From cdf of a binomial distribution with mid-p correction.
             # Here score is sum over depths, so ntoks is multiplied by depth.

@@ -90,7 +90,7 @@ Key parameters:
 - `scoring_method`: Use `v1` (deduplicate by window) for cleaner p-values.
 - `secret_key` (int): Primary secret key for attribution. Default: 42.
 
-Other watermark types (`gumbelmax`, `greenlist`, `synthid`, etc.) also work in generation mode.
+Other watermark types (`gumbelmax`, `greenlist`, `synthid`, etc.) also work in generation mode. With `--watermark.key_routing true`, `greenlist` and `synthid` route each token to key A or B with probability `mixing_alpha`, as `textseal` does.
 
 ### Prompt Configuration
 
