@@ -568,19 +568,19 @@ class SynthidGenerator(WmGenerator):
         valid_mask = listed_tokens >= 0
         if not valid_mask.any():
             return g_values
-        keys = [self.wm_args.secret_key] * bsz
+        # One batched call per round (and per key with key_routing); padding (-1) is scored as 0 and masked out.
+        safe_tokens = torch.where(valid_mask, listed_tokens, torch.zeros_like(listed_tokens))
+        rows_a = torch.ones(bsz, dtype=torch.bool)
         if self.wm_args.key_routing:  # key A/B per row as in TextSealGenerator
-            keys = [self.wm_args.key_a if a else self.wm_args.key_b for a in self.use_key_a(bsz).tolist()]
-        for dd in range(depth):
-            for ii in range(bsz):
-                wm_args_depth = replace(self.wm_args, secret_key=keys[ii])
-                valid_tokens = listed_tokens[ii, valid_mask[ii]]
-                scores = score_listed_tokens(
-                    ngram_tokens[ii].unsqueeze(0),
-                    wm_args_depth,
-                    valid_tokens + SYNTHID_ROUND_STRIDE * dd,
-                ).squeeze(0)
-                g_values[ii, valid_mask[ii], dd] = scores
+            rows_a = self.use_key_a(bsz)
+        rows_a = rows_a.to(listed_tokens.device)
+        for key, rows in ((self.wm_args.secret_key, rows_a), (self.wm_args.key_b, ~rows_a)):
+            if not rows.any():
+                continue
+            wm_args_key = replace(self.wm_args, secret_key=key)
+            for dd in range(depth):
+                scores = score_listed_tokens(ngram_tokens[rows], wm_args_key, safe_tokens[rows] + SYNTHID_ROUND_STRIDE * dd)
+                g_values[rows, :, dd] = scores * valid_mask[rows]
         return g_values
 
     def update_probs(

@@ -413,10 +413,10 @@ def score_listed_tokens(
     Args:
         wm_windows (torch.Tensor): Tensor of shape (batch_size, ngram) representing the watermark window for each example.
         wm_args (WatermarkConfig): Watermark arguments.
-        listed_tokens (list[int] or torch.Tensor): 1-D list/tensor of token ids to score.
+        listed_tokens (list[int] or torch.Tensor): 1-D list/tensor of token ids to score for every row,
+            or 2-D (batch_size, n_listed) tensor with one list per row.
     Returns:
         torch.Tensor: Watermark scores of shape (batch_size, n_listed).
-    TODO: potentially make it such that listed_tokens can be different for each batch element
     """
     batch_size = wm_windows.shape[0]
     device = wm_windows.device
@@ -425,12 +425,12 @@ def score_listed_tokens(
         listed_tokens = torch.tensor(listed_tokens, dtype=torch.long, device=device)
     else:
         listed_tokens = listed_tokens.to(device).long()
-    if listed_tokens.dim() != 1:
-        raise ValueError("listed_tokens must be a 1-D tensor or list of ints")
-    n_listed = listed_tokens.numel()
-    # Expand windows and listed tokens for batch computation
+    if listed_tokens.dim() == 1:  # same tokens for every row
+        listed_tokens = listed_tokens.unsqueeze(0).expand(batch_size, -1)
+    n_listed = listed_tokens.shape[1]
+    # Expand windows for batch computation
     wm_windows_exp = wm_windows.unsqueeze(1).expand(batch_size, n_listed, wm_windows.shape[1])  # b x n_listed x ngram
-    listed_tokens_exp = listed_tokens.unsqueeze(0).expand(batch_size, n_listed)  # b x n_listed
+    listed_tokens_exp = listed_tokens  # b x n_listed
     # Compute scores for each listed next token
     method = wm_args.method.lower()
     if method.startswith("bin"):  # binary

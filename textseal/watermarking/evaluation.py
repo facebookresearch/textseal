@@ -127,7 +127,7 @@ class WatermarkEvaluator:
                 total_tokens *= detector.wm_args.depth
             green_proportion = green_tokens / total_tokens if total_tokens > 0 else 0
             additional_stats = {
-                "toks_green": int(green_tokens),
+                "toks_green": float(green_tokens),
                 "toks_tot": int(total_tokens),
                 "green_proportion": float(green_proportion),
             }
