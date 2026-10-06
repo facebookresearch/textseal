@@ -53,7 +53,7 @@ import torch
 
 from textseal.utils.config import cfg_from_cli
 from textseal.watermarking.watermarker import PostHocWatermarker
-from textseal.watermarking.attack import AttackSimulator
+from textseal.attacks.attack import AttackSimulator
 from textseal.watermarking.config import (
     WatermarkConfig,
     ModelConfig,

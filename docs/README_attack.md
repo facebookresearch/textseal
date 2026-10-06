@@ -133,7 +133,7 @@ If you already have watermarked texts from previous experiments, use the standal
 
 ```bash
 # Minimal usage - watermark config auto-loaded from input file
-python -m textseal.watermarking.attack_only \
+python -m textseal.attacks.attack_only \
     --input_path output/previous_results.jsonl \
     --wm_text_key wm_text \
     --model.model_name meta-llama/Llama-3.2-1B-Instruct \
@@ -141,7 +141,7 @@ python -m textseal.watermarking.attack_only \
     --output_path output/attack_results.jsonl
 
 # Manual override (if watermark_config not in file or you want different params)
-python -m textseal.watermarking.attack_only \
+python -m textseal.attacks.attack_only \
     --input_path output/previous_results.jsonl \
     --wm_text_key wm_text \
     --watermark.watermark_type greenlist \
@@ -266,7 +266,7 @@ python -m textseal.watermarking.main \
 ### Step 2: Later, Attack Pre-watermarked Texts
 
 ```bash
-python -m textseal.watermarking.attack_only \
+python -m textseal.attacks.attack_only \
     --input_path output/exp1/results.jsonl \
     --wm_text_key wm_text \
     --watermark.watermark_type greenlist \

@@ -16,7 +16,7 @@ def test_attack_simulator_basic():
     print("Testing AttackSimulator basic attack...")
     
     try:
-        from textseal.watermarking.attack import AttackSimulator
+        from textseal.attacks.attack import AttackSimulator
         from textseal.watermarking.config import AttackConfig
         
         print("  - Creating AttackSimulator...")
@@ -65,7 +65,7 @@ def test_attack_simulator_all_strengths():
     print("Testing AttackSimulator all strengths...")
     
     try:
-        from textseal.watermarking.attack import AttackSimulator
+        from textseal.attacks.attack import AttackSimulator
         from textseal.watermarking.config import AttackConfig
         
         print("  - Creating AttackSimulator with multiple strengths...")
@@ -112,7 +112,7 @@ def test_attack_simulator_chunks():
     print("Testing AttackSimulator with chunks...")
     
     try:
-        from textseal.watermarking.attack import AttackSimulator
+        from textseal.attacks.attack import AttackSimulator
         from textseal.watermarking.config import AttackConfig
         
         print("  - Creating AttackSimulator...")
@@ -198,7 +198,7 @@ def test_attack_integration_with_watermarker():
     
     try:
         from textseal import PostHocWatermarker, WatermarkConfig, ModelConfig, AttackConfig
-        from textseal.watermarking.attack import AttackSimulator
+        from textseal.attacks.attack import AttackSimulator
         
         print("  - Creating watermarker...")
         watermarker = PostHocWatermarker(
