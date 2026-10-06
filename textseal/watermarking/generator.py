@@ -8,6 +8,7 @@ from transformers.cache_utils import DynamicCache
 
 from textseal.watermarking.config import WatermarkConfig
 from textseal.watermarking.core import (
+    SYNTHID_ROUND_STRIDE,
     fast_prf_dual,
     prf_dual,
     score_all_next_tokens,
@@ -562,7 +563,7 @@ class SynthidGenerator(WmGenerator):
                 scores = score_listed_tokens(
                     ngram_tokens[ii].unsqueeze(0),
                     wm_args_depth,
-                    valid_tokens + dd,
+                    valid_tokens + SYNTHID_ROUND_STRIDE * dd,
                 ).squeeze(0)
                 g_values[ii, valid_mask[ii], dd] = scores
         return g_values

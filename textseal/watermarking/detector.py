@@ -9,7 +9,7 @@ import torch
 from transformers import PreTrainedTokenizer, PreTrainedModel
 
 from textseal.watermarking.config import WatermarkConfig
-from textseal.watermarking.core import score_listed_tokens
+from textseal.watermarking.core import SYNTHID_ROUND_STRIDE, score_listed_tokens
 
 class WmDetector():
     def __init__(self, 
@@ -309,7 +309,7 @@ class SynthidDetector(WmDetector):
         scores = score_listed_tokens(
             ngram_tokens_tensor, 
             self.wm_args, 
-            [token_id + dd for dd in range(0, self.wm_args.depth)]
+            [token_id + SYNTHID_ROUND_STRIDE * dd for dd in range(0, self.wm_args.depth)]
         ) # Shape: (1, depth)
         weighted_score = (scores[0] * self.weights).sum() # sum over depth
         return weighted_score.item()

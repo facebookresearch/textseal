@@ -26,6 +26,8 @@ _M = 2**13 - 1
 _MIXING_PRIME = 40499
 _MIXING_SHIFT = 13
 
+SYNTHID_ROUND_STRIDE = 659101  # token offset between SynthID tournament rounds
+
 
 def _get_primes(k_dim: int, device: torch.device) -> torch.Tensor:
     return torch.tensor(_PRIMES[:k_dim], dtype=torch.long, device=device)
