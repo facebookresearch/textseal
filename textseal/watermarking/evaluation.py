@@ -23,7 +23,7 @@ from typing import Optional
 from sentence_transformers import SentenceTransformer
 import torch
 
-from textseal.watermarking.detector import build_detector
+from textseal.watermarking.detector import build_detector, dual_key_channels
 
 # HF creates warning when using multiprocessing after tokenizers import
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -96,6 +96,8 @@ class WatermarkEvaluator:
         # Initialize seen_windows for deduplication if using v1 or v2 scoring
         seen_windows = set() if scoring_method in ['v1', 'v2'] else None
         
+        dual_key = (getattr(detector, "wm_args", None) or detector.wm_config).dual_key
+
         # Compute filtered scores (with entropy threshold)
         scores, masks_lists = detector.get_scores_by_t(
             [text], 
@@ -103,10 +105,15 @@ class WatermarkEvaluator:
             return_aux=True,
             entropy_threshold=entropy_threshold,
             seen_windows=seen_windows,
-            precomputed_entropies=[precomputed_entropies] if precomputed_entropies else None
+            precomputed_entropies=[precomputed_entropies] if precomputed_entropies else None,
+            per_key=dual_key,
         )
         masks_array = np.array(masks_lists[0])  # Convert to numpy array
         scores_array = np.array(scores[0])  # Convert to numpy array
+        if dual_key:  # per-key scores (n, 2) -> public / private / fused channels; scores_array becomes fused
+            channels = dual_key_channels(detector, scores_array)
+            per_key = scores_array.reshape(-1, 2)
+            scores_array = detector.alpha * per_key[:, 0] + (1 - detector.alpha) * per_key[:, 1]
         p_value = detector.get_pvalue(float(np.sum(scores_array)), int(len(scores_array)), eps=1e-200)
         stats = {
             "score": float(np.mean(scores_array)),
@@ -135,6 +142,9 @@ class WatermarkEvaluator:
             additional_stats = {}
 
         stats = {**stats, **additional_stats}
+        if dual_key:
+            for name, channel in channels.items():
+                stats[name] = {**channel, "det": bool(channel["p_value"] < self.config.detection_threshold)}
         return stats
     
     def _evaluate_single_watermark_test(

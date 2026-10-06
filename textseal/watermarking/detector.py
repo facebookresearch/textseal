@@ -26,6 +26,7 @@ class WmDetector():
         self.wm_args = wm_args
         self.ngram = wm_args.ngram
         self.secret_key = wm_args.secret_key
+        self.alpha = wm_args.mixing_alpha if wm_args.key_routing else 1.0  # weight of key A
     
     def _get_vocab_size(self) -> int:
         """Get vocabulary size in a generic way."""
@@ -78,7 +79,8 @@ class WmDetector():
         return_aux: bool = False,
         entropy_threshold: float = None,
         seen_windows: set = None,
-        precomputed_entropies: list = None
+        precomputed_entropies: list = None,
+        per_key: bool = False,
     ) -> list[list[float]]:
         """
         Get score increment for each token in list of texts.
@@ -93,6 +95,7 @@ class WmDetector():
             entropy_threshold: if set, only score tokens with entropy < threshold
             seen_windows: if provided, persist deduplication across multiple calls
             precomputed_entropies: if provided, use these instead of recomputing (list of lists)
+            per_key: if True, each score is the (key A, key B) pair from score_keys
         Output:
             score_lists: list of [score increments for every token] for each text
             masks_lists (optional): list of [1 if token is scored, 0 otherwise] for each text
@@ -155,7 +158,7 @@ class WmDetector():
                             continue
                         seen_windows.add(tup_for_unique)
                 mask_scored[-1] = 1  # 1 since we are scoring this token
-                rt = self.score_tok(ngram_tokens, tokens_id[ii][cur_pos])
+                rt = (self.score_keys if per_key else self.score_tok)(ngram_tokens, tokens_id[ii][cur_pos])
                 rts.append(rt)
             score_lists.append(rts)
             masks_lists.append(mask_scored)
@@ -224,22 +227,31 @@ class GreenlistDetector(WmDetector):
         """ 
         score_t = 1 if token_id in greenlist else 0 
         """
+        if self.wm_args.key_routing:  # fused score: keys A and B weighted by their routing probabilities
+            score_a, score_b = self.score_keys(ngram_tokens, token_id)
+            return self.alpha * score_a + (1 - self.alpha) * score_b
         # Use the unified scoring function for the GreenlistDetector
         ngram_tokens_tensor = torch.tensor(ngram_tokens).unsqueeze(0)  # Shape: (1, ngram)
         scores = score_listed_tokens(ngram_tokens_tensor, self.wm_args, [token_id])
-        if self.wm_args.key_routing:  # fused score: keys A and B weighted by their routing probabilities
-            scores_b = score_listed_tokens(ngram_tokens_tensor, replace(self.wm_args, secret_key=self.wm_args.key_b), [token_id])
-            scores = self.wm_args.mixing_alpha * scores + (1 - self.wm_args.mixing_alpha) * scores_b
         return scores[0, 0].item()
+
+    def score_keys(self, ngram_tokens, token_id):
+        """ (score under key A, score under key B) """
+        ngram_tokens_tensor = torch.tensor(ngram_tokens).unsqueeze(0)  # Shape: (1, ngram)
+        return tuple(
+            score_listed_tokens(ngram_tokens_tensor, replace(self.wm_args, secret_key=key), [token_id])[0, 0].item()
+            for key in (self.wm_args.key_a, self.wm_args.key_b)
+        )
                 
-    def get_pvalue(self, score: int, ntoks: int, eps: float):
+    def get_pvalue(self, score: int, ntoks: int, eps: float, alpha: float = None):
         """ 
         Compute p-value from binomial distribution with mid-p correction.
         Mid-p = P(X > score) + 0.5 * P(X = score)
         This improves uniformity of p-values under H0 for discrete distributions.
+        alpha: weight of key A in score (default self.alpha; 1.0 = single key).
         """
-        if self.wm_args.key_routing:
-            a = self.wm_args.mixing_alpha
+        a = self.alpha if alpha is None else alpha
+        if a != 1.0:
             if a == 0.5:  # 2 * score = X_A + X_B ~ Binomial(2 * ntoks, gamma): exact test below
                 score, ntoks = 2 * score, 2 * ntoks
             else:  # weighted sum of two binomials: z-test
@@ -318,18 +330,28 @@ class SynthidDetector(WmDetector):
         """ 
         score_depth = 1 if token_id in greenlist_depth else 0 
         """
-        ngram_tokens_tensor = torch.tensor(ngram_tokens).unsqueeze(0)  # Shape: (1, ngram)
-        listed_tokens = [token_id + SYNTHID_ROUND_STRIDE * dd for dd in range(0, self.wm_args.depth)]
-        scores = score_listed_tokens(ngram_tokens_tensor, self.wm_args, listed_tokens) # Shape: (1, depth)
         if self.wm_args.key_routing:  # fused score: keys A and B weighted by their routing probabilities
-            scores_b = score_listed_tokens(ngram_tokens_tensor, replace(self.wm_args, secret_key=self.wm_args.key_b), listed_tokens)
-            scores = self.wm_args.mixing_alpha * scores + (1 - self.wm_args.mixing_alpha) * scores_b
+            score_a, score_b = self.score_keys(ngram_tokens, token_id)
+            return self.alpha * score_a + (1 - self.alpha) * score_b
+        return self._score_key(ngram_tokens, token_id, self.wm_args.secret_key)
+
+    def score_keys(self, ngram_tokens, token_id):
+        """ (score under key A, score under key B) """
+        return tuple(self._score_key(ngram_tokens, token_id, key) for key in (self.wm_args.key_a, self.wm_args.key_b))
+
+    def _score_key(self, ngram_tokens, token_id, key):
+        ngram_tokens_tensor = torch.tensor(ngram_tokens).unsqueeze(0)  # Shape: (1, ngram)
+        scores = score_listed_tokens(
+            ngram_tokens_tensor, 
+            replace(self.wm_args, secret_key=key), 
+            [token_id + SYNTHID_ROUND_STRIDE * dd for dd in range(0, self.wm_args.depth)]
+        ) # Shape: (1, depth)
         weighted_score = (scores[0] * self.weights).sum() # sum over depth
         return weighted_score.item()
                 
-    def get_pvalue(self, score: float, ntoks: int, eps: float):
-        if self.wm_args.key_routing:
-            a = self.wm_args.mixing_alpha
+    def get_pvalue(self, score: float, ntoks: int, eps: float, alpha: float = None):
+        a = self.alpha if alpha is None else alpha  # weight of key A in score; 1.0 = single key
+        if a != 1.0:
             if a == 0.5 and not self.weighted:  # 2 * score ~ Binomial(2 * ntoks * depth, gamma): exact test below
                 score, ntoks = 2 * score, 2 * ntoks
             else:  # weighted sum: z-test
@@ -535,6 +557,7 @@ class TextSealDetector:
         entropy_threshold: float = None,
         seen_windows: set = None,
         precomputed_entropies: list = None,
+        per_key: bool = False,
     ) -> list[list[float]] | tuple[list[list[float]], list[list[int]]]:
         score_lists = []
         masks_lists = []
@@ -581,7 +604,8 @@ class TextSealDetector:
                 ctx_tensor = torch.tensor([ctx])
                 r_a = score_listed_tokens(ctx_tensor, config_a, [tok])[0, 0]
                 r_b = score_listed_tokens(ctx_tensor, config_b, [tok])[0, 0]
-                scores.append(self.alpha * _gumbel_score(r_a) + (1 - self.alpha) * _gumbel_score(r_b))
+                score_a, score_b = _gumbel_score(r_a), _gumbel_score(r_b)
+                scores.append((score_a, score_b) if per_key else self.alpha * score_a + (1 - self.alpha) * score_b)
                 mask_scored[-1] = 1
 
             score_lists.append(scores)
@@ -591,10 +615,11 @@ class TextSealDetector:
             return score_lists, masks_lists
         return score_lists
 
-    def get_pvalue(self, score: float, ntoks: int, eps: float = 1e-200) -> float:
+    def get_pvalue(self, score: float, ntoks: int, eps: float = 1e-200, alpha: float = None) -> float:
         if ntoks == 0:
             return 1.0
-        base_var = self.alpha ** 2 + (1 - self.alpha) ** 2
+        a = self.alpha if alpha is None else alpha  # weight of key A in score; 1.0 = single key
+        base_var = a ** 2 + (1 - a) ** 2
         return max(float(special.gammaincc(ntoks / base_var, score / base_var)), eps)
 
     def detect_batch(self, texts: list[str], scoring_method: str | None = None) -> list[dict]:
@@ -728,6 +753,19 @@ def localized_detect(
         n_tokens=len(fused_scores),
         token_labels=list(result.token_labels),
     )
+
+
+def dual_key_channels(detector, scores_by_key, eps: float = 1e-200) -> dict:
+    """p-values of key A alone (public), key B alone (private) and their alpha mix (fused),
+    from per-key scores of shape (n, 2) as returned by get_scores_by_t(..., per_key=True)."""
+    scores = np.asarray(scores_by_key, dtype=float).reshape(-1, 2)
+    n = len(scores)
+    fused = detector.alpha * scores[:, 0] + (1 - detector.alpha) * scores[:, 1]
+    channels = {}
+    for name, s, alpha in (("public", scores[:, 0], 1.0), ("private", scores[:, 1], 1.0), ("fused", fused, detector.alpha)):
+        p_value = detector.get_pvalue(float(np.sum(s)), n, eps, alpha=alpha) if n else 1.0
+        channels[name] = {"p_value": float(p_value), "score_sum": float(np.sum(s)), "n_tokens": n}
+    return channels
 
 
 def build_detector(

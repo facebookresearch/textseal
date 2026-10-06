@@ -287,6 +287,8 @@ def main():
                 "line": line_num,
                 "wm_score": wm_eval.get("score"),
                 "pvalue": wm_eval.get("p_value"),
+                "pvalue_public": wm_eval.get("public", {}).get("p_value"),
+                "pvalue_private": wm_eval.get("private", {}).get("p_value"),
                 "orig_tokens": stats.get("orig_toks"),
                 "wm_tokens": stats.get("wm_toks"),
                 "tps": times.get("tps"),

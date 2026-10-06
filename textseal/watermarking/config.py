@@ -108,6 +108,10 @@ class WatermarkConfig:
     key_routing: bool = False  # greenlist/synthid: route each token to key A or B, as textseal does
 
     @property
+    def dual_key(self) -> bool:
+        return self.watermark_type == "textseal" or self.key_routing
+
+    @property
     def key_a(self) -> int:
         return self.secret_key
 
