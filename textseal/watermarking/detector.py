@@ -755,6 +755,19 @@ def localized_detect(
     )
 
 
+def per_key_scores(detector, text) -> np.ndarray:
+    """(n, 2) scores of `text` under key A and key B, on the positions the detector keeps."""
+    sm = (getattr(detector, "wm_args", None) or detector.wm_config).scoring_method
+    scores = detector.get_scores_by_t([text], scoring_method=sm, per_key=True,
+                                      seen_windows=set() if sm in ("v1", "v2") else None)[0]
+    return np.asarray(scores, dtype=float).reshape(-1, 2)
+
+
+def text_channels(detector, text, eps: float = 1e-200) -> dict:
+    """Public / private / fused p-values of `text` (see dual_key_channels)."""
+    return dual_key_channels(detector, per_key_scores(detector, text), eps)
+
+
 def dual_key_channels(detector, scores_by_key, eps: float = 1e-200) -> dict:
     """p-values of key A alone (public), key B alone (private) and their alpha mix (fused),
     from per-key scores of shape (n, 2) as returned by get_scores_by_t(..., per_key=True)."""
@@ -763,7 +776,7 @@ def dual_key_channels(detector, scores_by_key, eps: float = 1e-200) -> dict:
     fused = detector.alpha * scores[:, 0] + (1 - detector.alpha) * scores[:, 1]
     channels = {}
     for name, s, alpha in (("public", scores[:, 0], 1.0), ("private", scores[:, 1], 1.0), ("fused", fused, detector.alpha)):
-        p_value = detector.get_pvalue(float(np.sum(s)), n, eps, alpha=alpha) if n else 1.0
+        p_value = detector.get_pvalue(float(np.sum(s)), n, eps, alpha=alpha)
         channels[name] = {"p_value": float(p_value), "score_sum": float(np.sum(s)), "n_tokens": n}
     return channels
 

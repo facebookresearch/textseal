@@ -50,10 +50,12 @@ from pathlib import Path
 from omegaconf import OmegaConf
 
 import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from textseal.utils.config import cfg_from_cli
+from textseal.attacks.oracle import NoBox
+from textseal.attacks.rephrasing import RephrasingAttack
 from textseal.watermarking.watermarker import PostHocWatermarker
-from textseal.attacks.attack import AttackSimulator
 from textseal.watermarking.config import (
     WatermarkConfig,
     ModelConfig,
@@ -61,7 +63,6 @@ from textseal.watermarking.config import (
     ProcessingConfig,
     PromptConfig,
     EvaluationConfig,
-    AttackConfig,
 )
 
 
@@ -93,7 +94,10 @@ class CLIArgs:
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     prompt: PromptConfig = field(default_factory=PromptConfig)
-    attack: AttackConfig = field(default_factory=AttackConfig)
+
+    # Rephrasing attack: rephrase each watermarked text and detect again
+    attack_model_name: str = ""  # Rephrasing model (empty = no attack)
+    attack_temperatures: str = "0.5,0.8,1.0,1.2"  # One rephrase per temperature
 
 
 def main():
@@ -283,12 +287,13 @@ def main():
                 }, ensure_ascii=False))
         else:
             # Single test mode (backward compatible)
+            channels = ({"pvalue_public": wm_eval["public"]["p_value"],
+                         "pvalue_private": wm_eval["private"]["p_value"]} if "public" in wm_eval else {})
             print(json.dumps({
                 "line": line_num,
                 "wm_score": wm_eval.get("score"),
                 "pvalue": wm_eval.get("p_value"),
-                "pvalue_public": wm_eval.get("public", {}).get("p_value"),
-                "pvalue_private": wm_eval.get("private", {}).get("p_value"),
+                **channels,
                 "orig_tokens": stats.get("orig_toks"),
                 "wm_tokens": stats.get("wm_toks"),
                 "tps": times.get("tps"),
@@ -317,70 +322,26 @@ def main():
             print(f"Code eval: {qual_eval.get('code_eval', 'N/A')}")
             print("-" * 40)
         
-        # Perform attack if enabled - run all configured attack strengths
-        if cfg.evaluation.evaluate_attack and attack_simulator is not None:
-            print(f"Line {line_num}: Performing attack simulations...")
-            wm_text = line_results.get("wm_text", "")
-            
-            if wm_text:
-                # Run attacks with all configured strengths
-                attack_results = attack_simulator.attack_all_strengths(
-                    wm_text,
-                    max_gen_len=cfg.attack.attack_max_gen_len,
-                    top_p=cfg.attack.attack_top_p,
-                    verbose=True
-                )
-                
-                # Evaluate watermark and quality for each attack strength
-                attacks_evaluated = {}
-                for strength, attack_result in attack_results.items():
-                    attacked_text = attack_result.get("attacked_text", "")
-                    attack_stats = attack_result.get("attack_stats", {})
-                    
-                    # Evaluate watermark detection on attacked text
-                    attack_wm_eval = watermarker.evaluator.evaluate_watermark(
-                        attacked_text,
-                        watermarker.detector,
-                        cfg.watermark.watermark_type,
-                        cfg.watermark.scoring_method,
-                        entropy_threshold=cfg.evaluation.entropy_threshold,
-                        tokenizer=watermarker.tokenizer,
-                        wm_config=cfg.watermark,
-                        model=watermarker.model
-                    )
-                    
-                    # Evaluate quality of attack
-                    attack_quality = watermarker.evaluator.evaluate_quality(wm_text, attacked_text)
-                    
-                    # Store results for this strength
-                    attacks_evaluated[strength] = {
-                        "attacked_text": attacked_text,
-                        "attack_stats": attack_stats,
-                        "attack_wm_eval": attack_wm_eval,
-                        "attack_quality": attack_quality,
-                        "temperature": attack_result.get("temperature"),
-                    }
-                    
-                    # Print summary for this strength
-                    if isinstance(attack_wm_eval, dict) and "tests" in attack_wm_eval:
-                        primary_attack = attack_wm_eval.get("primary", {})
-                        p_val = primary_attack.get("p_value")
-                        detected = primary_attack.get("det")
-                    else:
-                        p_val = attack_wm_eval.get("p_value")
-                        detected = attack_wm_eval.get("det")
-                    
-                    print(json.dumps({
-                        "line": line_num,
-                        "attack_strength": strength,
-                        "attack_pvalue": p_val,
-                        "attack_detected": detected,
-                        "attack_tokens": attack_stats.get("attacked_tokens"),
-                        "attack_similarity": attack_quality.get("semantic_similarity"),
-                    }, ensure_ascii=False))
-                
-                # Add all attack results to line_results
-                line_results["attacks"] = attacks_evaluated
+        # Rephrasing attack: rephrase the watermarked text at each temperature and detect again
+        if attack is not None and line_results.get("wm_text"):
+            wm_text = line_results["wm_text"]
+            line_results["attacks"] = {}
+            for temperature in attack_temperatures:
+                attack.temperature = temperature
+                attacked_text = attack.run_batch([wm_text], max_new_tokens=cfg.processing.max_gen_len)[0]["text"]
+                attack_wm_eval = watermarker.evaluate_watermark(attacked_text)
+                attack_quality = watermarker.evaluator.evaluate_quality(wm_text, attacked_text)
+                line_results["attacks"][str(temperature)] = {
+                    "attacked_text": attacked_text,
+                    "attack_wm_eval": attack_wm_eval,
+                    "attack_quality": attack_quality,
+                }
+                print(json.dumps({
+                    "line": line_num,
+                    "attack_temperature": temperature,
+                    "attack_pvalue": attack_wm_eval.get("primary", attack_wm_eval).get("p_value"),
+                    "attack_similarity": attack_quality.get("semantic_similarity"),
+                }, ensure_ascii=False))
 
         return line_results
     
@@ -393,14 +354,16 @@ def main():
         prompt_config=cfg.prompt
     )
     
-    # Initialize attack simulator if attack mode is enabled
-    attack_simulator = None
-    if cfg.attack.enable_attack or cfg.evaluation.evaluate_attack:
-        attack_simulator = AttackSimulator(
-            attack_config=cfg.attack,
-            cache_dir=cfg.model.cache_dir
-        )
-        print(f"✓ Attack simulator initialized")
+    # No-box rephrasing attack (textseal.attacks.rephrasing), if requested
+    attack = None
+    attack_temperatures = [float(t) for t in cfg.attack_temperatures.split(",") if t.strip()]
+    if cfg.attack_model_name:
+        attack_model = AutoModelForCausalLM.from_pretrained(
+            cfg.attack_model_name, dtype=watermarker.model.dtype, cache_dir=cfg.model.cache_dir,
+        ).to(watermarker.model.device).eval()
+        attack_tokenizer = AutoTokenizer.from_pretrained(cfg.attack_model_name, cache_dir=cfg.model.cache_dir)
+        attack = RephrasingAttack(attack_model, attack_tokenizer, NoBox())
+        print(f"✓ Rephrasing attack: {cfg.attack_model_name}, temperatures {attack_temperatures}")
 
     # Detect file format
     file_extension = input_path.suffix.lower()
@@ -437,6 +400,7 @@ def main():
                 # Batched generation; detection-only, truncated and chunked texts stay per line.
                 batched = (
                     cfg.batch_size > 1
+                    and cfg.processing.generation_mode  # rephrasing limits length per input text
                     and not cfg.evaluation.enable_detection_only
                     and cfg.max_input_tokens <= 0
                     and all(len(watermarker.tokenizer.encode(t)) <= watermarker.processing_config.max_chunk_size for _, t, _ in batch)

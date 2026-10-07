@@ -420,7 +420,7 @@ def score_listed_tokens(
     """
     batch_size = wm_windows.shape[0]
     device = wm_windows.device
-    # ensure listed_tokens is a 1-D torch tensor on correct device
+    # ensure listed_tokens is a torch tensor on correct device
     if not isinstance(listed_tokens, torch.Tensor):
         listed_tokens = torch.tensor(listed_tokens, dtype=torch.long, device=device)
     else:
@@ -430,14 +430,13 @@ def score_listed_tokens(
     n_listed = listed_tokens.shape[1]
     # Expand windows for batch computation
     wm_windows_exp = wm_windows.unsqueeze(1).expand(batch_size, n_listed, wm_windows.shape[1])  # b x n_listed x ngram
-    listed_tokens_exp = listed_tokens  # b x n_listed
     # Compute scores for each listed next token
     method = wm_args.method.lower()
     if method.startswith("bin"):  # binary
-        wm_mask = prf_binary(wm_windows_exp, listed_tokens_exp, wm_args.secret_key, gamma=wm_args.gamma)
+        wm_mask = prf_binary(wm_windows_exp, listed_tokens, wm_args.secret_key, gamma=wm_args.gamma)
         scores = wm_mask.float()
     elif method.startswith("uni"):  # uniform
-        wm_mask = prf_uniform(wm_windows_exp, listed_tokens_exp, wm_args.secret_key)
+        wm_mask = prf_uniform(wm_windows_exp, listed_tokens, wm_args.secret_key)
         scores = wm_mask.float()
     elif method == "none":
         scores = torch.zeros((batch_size, n_listed), device=device)

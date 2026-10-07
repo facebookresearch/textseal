@@ -220,7 +220,7 @@ See [docs/README_contamination.md](docs/README_contamination.md) for detailed do
 
 - **[API Usage Guide](docs/README_posthoc_api.md)** - Common use cases (detection-only, watermarking-only, etc.)
 - **[Post-hoc Watermarking](docs/README_posthoc.md)** - Rephrase text while adding a watermark
-- **[Attack Simulation](docs/README_attack.md)** - Test watermark robustness against rephrasing attacks
+- **[Attack Simulation](docs/README_attack.md)** - Test watermark robustness against rephrasing attacks, and informed removal/forgery attacks with a public detector
 - **[Contamination Detection](docs/README_contamination.md)** - Detect benchmark memorization via watermarks
 
 

@@ -1,3 +1,3 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
-"""Attack simulation: rephrasing attacks on watermarked text."""
+"""Attacks on watermarked text: rephrasing and word edits, at no-box to white-box detector access."""

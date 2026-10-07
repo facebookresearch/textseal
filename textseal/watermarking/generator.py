@@ -189,7 +189,7 @@ class WmGenerator():
             
             # Early stopping: check if all sequences have generated EOS
             for eos_id in eos_ids:
-                eos_reached |= (next_toks == eos_id)
+                eos_reached |= (next_toks == eos_id) & ~input_text_mask[:, cur_pos]  # ignore samples overwritten by the prompt
             if eos_reached.all():
                 break
         decoded = []
@@ -570,10 +570,9 @@ class SynthidGenerator(WmGenerator):
             return g_values
         # One batched call per round (and per key with key_routing); padding (-1) is scored as 0 and masked out.
         safe_tokens = torch.where(valid_mask, listed_tokens, torch.zeros_like(listed_tokens))
-        rows_a = torch.ones(bsz, dtype=torch.bool)
+        rows_a = torch.ones(bsz, dtype=torch.bool, device=listed_tokens.device)
         if self.wm_args.key_routing:  # key A/B per row as in TextSealGenerator
-            rows_a = self.use_key_a(bsz)
-        rows_a = rows_a.to(listed_tokens.device)
+            rows_a = self.use_key_a(bsz, listed_tokens.device)
         for key, rows in ((self.wm_args.secret_key, rows_a), (self.wm_args.key_b, ~rows_a)):
             if not rows.any():
                 continue
@@ -917,7 +916,6 @@ class TextSealGenerator(WmGenerator):
         super().__init__(model, tokenizer, wm_args)
         self.key_a = wm_args.key_a
         self.key_b = wm_args.key_b
-        self.mixing_alpha = wm_args.mixing_alpha
 
     def sample_next(
         self,
