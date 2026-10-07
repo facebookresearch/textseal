@@ -12,6 +12,7 @@ Meta Text Seal is a toolkit for LLM generation-time watermarking, post-hoc text 
 
 - 🆕 **TextSeal** (NEW): Dual-key generation-time watermarking with speculative decoding and localized detection. See [docs/README_textseal.md](docs/README_textseal.md).
 - 🔏 **Post-hoc Watermarking**: Rephrase text with an LLM while inserting a watermark using generation-time scheme (Green-list/Red-list, Gumbel-max, DipMark, SynthID, MorphMark, WaterMax, etc.).
+- 🔑 **Public Detection**: One key for public detection, both keys for full detection that flags tampering. See [docs/README_attack.md](docs/README_attack.md).
 - 🧪 **Contamination Detection**: Detect watermarked dataset membership inference through radioactivity.
 - 🚀 **Training Infrastructure**: Distributed pretraining and SFT with contamination injection support for research purposes.
 
@@ -230,6 +231,7 @@ See [docs/README_contamination.md](docs/README_contamination.md) for detailed do
 textseal/
 ├── textseal/
 │   ├── watermarking/     # Watermarking: post-hoc, generation-time, detection
+│   ├── attacks/          # Removal/forgery attacks
 │   ├── wmtraining/       # Training and evaluation
 │   ├── analysis/         # Analysis tools
 │   └── common/           # Shared utilities (LLM, watermark, config)
