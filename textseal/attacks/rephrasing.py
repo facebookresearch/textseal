@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
 """Rephrasing watermark attack: rephrase with the sampling steered by r.
 
 Scrub and spoof are the same attack with the sign of the objective flipped, so

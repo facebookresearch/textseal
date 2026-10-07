@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
 """Shared helpers for the attacks: JSONL rows, word spans, and text quality."""
 import glob
 import json

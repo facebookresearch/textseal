@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
 """Attack driver: rephrasing or word edits, removal (scrub) or forgery (spoof).
 
     --mode scrub   attack each `wm_text` of --input to remove the watermark

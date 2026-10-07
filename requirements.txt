@@ -5,6 +5,7 @@ msgspec
 rouge-score
 sacrebleu
 sentence-transformers>=3.0.0
+bert-score
 sentencepiece
 tiktoken
 fsspec

@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
 """What an attacker reads from the public detector, at each access level:
 
     NoBox     nothing: no public detector exists (the uninformed attacker)

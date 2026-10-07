@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
 """Channel-difference tampering test for dual-key schemes (textseal, or key_routing).
 
 Each token is generated under exactly one of the two keys, key A (public) with

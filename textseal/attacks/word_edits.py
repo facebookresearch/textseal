@@ -1,3 +1,5 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+
 """Word-edit watermark attack: masked-LM word replacement.
 
 Scrub and spoof are the same algorithm with the sign of the objective flipped:
