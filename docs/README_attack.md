@@ -53,7 +53,7 @@ Removal (`--mode scrub`) and forgery (`--mode spoof`) attacks on dual-key waterm
 
 Two attacks:
 
-- **Rephrasing** (`--attack rephrasing`): a surrogate LLM (`--model_id`) rephrases the text. With white-box access its sampling is biased by each candidate token's score, either additively (`--sampling additive --strength 1.0`) or by Gumbel-max selection (`--sampling gumbel`, TextSeal only).
+- **Rephrasing** (`--attack rephrasing`): a surrogate LLM (`--model_id`) rephrases the text. With white-box access its sampling is biased by each candidate token's score, either additively (`--sampling additive --strength 1.0`) or by Gumbel-max selection (`--sampling gumbel`, TextSeal only). With black-box access it rephrases at temperatures 0.2, 0.4, ..., `--temperature` and keeps the first paraphrase that crosses the public decision.
 - **Word edits** (`--attack word_edits`): a masked LM replaces `--edit_fraction` of the words. With white-box access the words carrying the most (scrub) or least (spoof) signal go first; with black-box access the attack stops on the first word that crosses the public decision (`--overshoot m` keeps editing to `m` times the edits that took).
 
 `--adaptive --overshoot m` (white-box) aims at `m` times past `--threshold`: rephrasing scales its bias by the distance to that aim, word edits stop once the public p-value reaches it.

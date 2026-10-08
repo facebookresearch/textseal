@@ -128,11 +128,8 @@ class RephrasingAttack:
             raise ValueError(f"goal must be 'scrub'/'spoof', got {goal!r}")
         if sampling not in ("additive", "gumbel"):
             raise ValueError(f"sampling must be 'additive'/'gumbel', got {sampling!r}")
-        if oracle.access == "blackbox":
-            raise ValueError("a bit cannot rank candidates: black-box rephrasing is the "
-                             "no-box rephrase with the detector as a stopping rule")
-        if oracle.access == "nobox" and (sampling != "additive" or adaptive):
-            raise ValueError("no-box rephrasing is additive and not adaptive: the gumbel "
+        if oracle.access != "whitebox" and (sampling != "additive" or adaptive):
+            raise ValueError("no-box and black-box rephrasing are additive and not adaptive: the gumbel "
                              "rules and the adaptive bias read the detector")
         if adaptive and sampling != "additive":
             raise ValueError("adaptive bias needs sampling='additive'; the gumbel "
@@ -173,11 +170,37 @@ class RephrasingAttack:
     def run_batch(self, texts, max_new_tokens=512):
         """One batched forward per step. One user turn, no system turn: the steering
         lives in the sampler."""
+        if self.oracle.access == "blackbox":
+            return self._run_blackbox(texts, max_new_tokens)
+        out = self._rephrase(texts, max_new_tokens)
+        return [{"text": t} for t in out]
+
+    def _rephrase(self, texts, max_new_tokens):
         prompts = [prompt_ids(self.tokenizer, [{"role": "user", "content": PROMPT.format(text=t)}])
                    for t in texts]
-        out = generate_batch(self.model, self.tokenizer, prompts, max_new_tokens,
-                             self._stops, self.pick_batch)
-        return [{"text": t} for t in out]
+        return generate_batch(self.model, self.tokenizer, prompts, max_new_tokens,
+                              self._stops, self.pick_batch)
+
+    def _run_blackbox(self, texts, max_new_tokens):
+        """The bit as a stopping rule: the no-box rephrase at T = 0.2, 0.4, ..., T_max
+        (`temperature`), keeping each text's first paraphrase whose public decision is on
+        the goal's side, else its T_max one. One submitted paraphrase is one query."""
+        t_max = self.temperature
+        temps = [round(0.2 * k, 6) for k in range(1, int(t_max / 0.2 + 1e-9) + 1)]
+        if not temps or temps[-1] < t_max:
+            temps.append(t_max)
+        res = [{"text": None, "queries": 0} for _ in texts]
+        todo = list(range(len(texts)))
+        for t in temps:
+            if not todo:
+                break
+            self.temperature = t
+            outs = self._rephrase([texts[i] for i in todo], max_new_tokens)
+            for i, out in zip(todo, outs):
+                res[i] = {"text": out, "queries": res[i]["queries"] + 1}
+            todo = [i for i in todo if self.oracle.result(res[i]["text"]) != (self.goal == "spoof")]
+        self.temperature = t_max
+        return res
 
     def pick_batch(self, logits_rows, texts, rows):
         """{row: token_id} for one decode step. Fixed-strength additive reads r for every
@@ -198,7 +221,7 @@ class RephrasingAttack:
 
     def _r_multi(self, texts, cands):
         """[{id: r}] per row for a whole decode step."""
-        if self.oracle.access == "nobox":
+        if self.oracle.access != "whitebox":
             return [{} for _ in texts]
         return self.oracle.candidates_after_multi(
             texts, cands, lambda t: self.tokenizer.decode([t]))
