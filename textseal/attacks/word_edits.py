@@ -83,9 +83,14 @@ class MLMProposer:
 
 
 def _word_runs(text):
-    """Maximal non-whitespace runs. A replacement carries no whitespace, so the number
-    of runs never changes and an index into this list names one word for the whole attack."""
-    return [m.span() for m in re.finditer(r"\S+", text)]
+    """Maximal non-whitespace runs, trimmed to their word characters so attached punctuation
+    stays. A replacement carries no whitespace, so the number of runs never changes and an
+    index into this list names one word for the whole attack."""
+    runs = []
+    for m in re.finditer(r"\S+", text):
+        core = re.search(r"\w(?:\S*\w)?", m.group())
+        runs.append((m.start() + core.start(), m.start() + core.end()) if core else m.span())
+    return runs
 
 
 class WordEditAttack:
