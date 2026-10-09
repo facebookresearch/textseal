@@ -8,6 +8,7 @@ from transformers.cache_utils import DynamicCache
 
 from textseal.watermarking.config import WatermarkConfig
 from textseal.watermarking.core import (
+    SYNTHID_ROUND_STRIDE,
     fast_prf_dual,
     prf_dual,
     score_all_next_tokens,
@@ -62,6 +63,10 @@ class WmGenerator():
         self.ngram = self.wm_args.ngram
         self.secret_key = self.wm_args.secret_key
     
+    def use_key_a(self, bsz: int, device=None) -> torch.BoolTensor:
+        """Per-row key routing: True (key A) with probability mixing_alpha, else key B."""
+        return torch.rand(bsz, device=device) < self.wm_args.mixing_alpha
+
     def _get_eos_tokens(self) -> int | list[int]:
         """Get EOS tokens from HuggingFace model/tokenizer."""
         # For HuggingFace models, just use the tokenizer's EOS token
@@ -184,7 +189,7 @@ class WmGenerator():
             
             # Early stopping: check if all sequences have generated EOS
             for eos_id in eos_ids:
-                eos_reached |= (next_toks == eos_id)
+                eos_reached |= (next_toks == eos_id) & ~input_text_mask[:, cur_pos]  # ignore samples overwritten by the prompt
             if eos_reached.all():
                 break
         decoded = []
@@ -310,7 +315,7 @@ class GreenlistGenerator(WmGenerator):
             probs_sort[mask] = 0.0
             if self.after_topp:
                 bsz, vocab_size = logits.shape
-                green_scores = score_all_next_tokens(ngram_tokens, self.wm_args, vocab_size)
+                green_scores = self.green_scores(ngram_tokens, vocab_size)
                 # Reorder green scores to match probability sorting
                 batch_indices = torch.arange(bsz, device=probs_idx.device).unsqueeze(1)
                 green_scores_sorted = green_scores[batch_indices, probs_idx]  # (bsz, vocab_size)
@@ -334,10 +339,18 @@ class GreenlistGenerator(WmGenerator):
     def logits_processor(self, logits, ngram_tokens):
         """Process logits to mask out words in greenlist."""
         bsz, vocab_size = logits.shape
-        scores = score_all_next_tokens(ngram_tokens, self.wm_args, vocab_size)
+        scores = self.green_scores(ngram_tokens, vocab_size)
         bias = scores * self.delta
         logits += bias
         return logits
+
+    def green_scores(self, ngram_tokens, vocab_size):
+        """Greenlist of key A, or with key_routing of key A/B per row as in TextSealGenerator."""
+        scores = score_all_next_tokens(ngram_tokens, self.wm_args, vocab_size)
+        if self.wm_args.key_routing:
+            scores_b = score_all_next_tokens(ngram_tokens, replace(self.wm_args, secret_key=self.wm_args.key_b), vocab_size)
+            scores = torch.where(self.use_key_a(scores.shape[0], scores.device).unsqueeze(1), scores, scores_b)
+        return scores
 
 
 class MorphMarkGenerator(WmGenerator):
@@ -555,16 +568,18 @@ class SynthidGenerator(WmGenerator):
         valid_mask = listed_tokens >= 0
         if not valid_mask.any():
             return g_values
-        for dd in range(depth):
-            wm_args_depth = replace(self.wm_args, secret_key=self.wm_args.secret_key)
-            for ii in range(bsz):
-                valid_tokens = listed_tokens[ii, valid_mask[ii]]
-                scores = score_listed_tokens(
-                    ngram_tokens[ii].unsqueeze(0),
-                    wm_args_depth,
-                    valid_tokens + dd,
-                ).squeeze(0)
-                g_values[ii, valid_mask[ii], dd] = scores
+        # One batched call per round (and per key with key_routing); padding (-1) is scored as 0 and masked out.
+        safe_tokens = torch.where(valid_mask, listed_tokens, torch.zeros_like(listed_tokens))
+        rows_a = torch.ones(bsz, dtype=torch.bool, device=listed_tokens.device)
+        if self.wm_args.key_routing:  # key A/B per row as in TextSealGenerator
+            rows_a = self.use_key_a(bsz, listed_tokens.device)
+        for key, rows in ((self.wm_args.secret_key, rows_a), (self.wm_args.key_b, ~rows_a)):
+            if not rows.any():
+                continue
+            wm_args_key = replace(self.wm_args, secret_key=key)
+            for dd in range(depth):
+                scores = score_listed_tokens(ngram_tokens[rows], wm_args_key, safe_tokens[rows] + SYNTHID_ROUND_STRIDE * dd)
+                g_values[rows, :, dd] = scores * valid_mask[rows]
         return g_values
 
     def update_probs(
@@ -901,7 +916,6 @@ class TextSealGenerator(WmGenerator):
         super().__init__(model, tokenizer, wm_args)
         self.key_a = wm_args.key_a
         self.key_b = wm_args.key_b
-        self.mixing_alpha = wm_args.mixing_alpha
 
     def sample_next(
         self,
@@ -928,8 +942,7 @@ class TextSealGenerator(WmGenerator):
         else:
             r_a, r_b = prf_dual(ngram_tokens, probs_idx, self.key_a, self.key_b)
 
-        use_key_a = torch.rand(logits.shape[0], device=logits.device) < self.mixing_alpha
-        r = torch.where(use_key_a.unsqueeze(1), r_a, r_b)
+        r = torch.where(self.use_key_a(logits.shape[0], logits.device).unsqueeze(1), r_a, r_b)
         scores = torch.log(r + 1e-30) / (probs_sort + 1e-30)
         next_token = torch.argmax(scores, dim=-1, keepdim=True)
         return torch.gather(probs_idx, -1, next_token).reshape(-1)

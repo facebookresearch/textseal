@@ -26,6 +26,8 @@ _M = 2**13 - 1
 _MIXING_PRIME = 40499
 _MIXING_SHIFT = 13
 
+SYNTHID_ROUND_STRIDE = 659101  # token offset between SynthID tournament rounds
+
 
 def _get_primes(k_dim: int, device: torch.device) -> torch.Tensor:
     return torch.tensor(_PRIMES[:k_dim], dtype=torch.long, device=device)
@@ -51,6 +53,8 @@ def _hash(w_weighted, x_k, sk, device):
             f"sk tensor must have the same shape as x_k. Got sk.shape={sk.shape}, x_k.shape={x_k.shape}"
         )
         sk_tensor = sk.to(device).long()
+    if w_weighted.dim() < x_k.dim():  # (bsz,) windows against (bsz, vocab) tokens
+        w_weighted = w_weighted.unsqueeze(-1)
     h = (w_weighted + _P2 * x_k.long() + _P3 * sk_tensor) * _P4
     h = h * _MIXING_PRIME
     h = h ^ (h >> _MIXING_SHIFT)
@@ -409,31 +413,30 @@ def score_listed_tokens(
     Args:
         wm_windows (torch.Tensor): Tensor of shape (batch_size, ngram) representing the watermark window for each example.
         wm_args (WatermarkConfig): Watermark arguments.
-        listed_tokens (list[int] or torch.Tensor): 1-D list/tensor of token ids to score.
+        listed_tokens (list[int] or torch.Tensor): 1-D list/tensor of token ids to score for every row,
+            or 2-D (batch_size, n_listed) tensor with one list per row.
     Returns:
         torch.Tensor: Watermark scores of shape (batch_size, n_listed).
-    TODO: potentially make it such that listed_tokens can be different for each batch element
     """
     batch_size = wm_windows.shape[0]
     device = wm_windows.device
-    # ensure listed_tokens is a 1-D torch tensor on correct device
+    # ensure listed_tokens is a torch tensor on correct device
     if not isinstance(listed_tokens, torch.Tensor):
         listed_tokens = torch.tensor(listed_tokens, dtype=torch.long, device=device)
     else:
         listed_tokens = listed_tokens.to(device).long()
-    if listed_tokens.dim() != 1:
-        raise ValueError("listed_tokens must be a 1-D tensor or list of ints")
-    n_listed = listed_tokens.numel()
-    # Expand windows and listed tokens for batch computation
+    if listed_tokens.dim() == 1:  # same tokens for every row
+        listed_tokens = listed_tokens.unsqueeze(0).expand(batch_size, -1)
+    n_listed = listed_tokens.shape[1]
+    # Expand windows for batch computation
     wm_windows_exp = wm_windows.unsqueeze(1).expand(batch_size, n_listed, wm_windows.shape[1])  # b x n_listed x ngram
-    listed_tokens_exp = listed_tokens.unsqueeze(0).expand(batch_size, n_listed)  # b x n_listed
     # Compute scores for each listed next token
     method = wm_args.method.lower()
     if method.startswith("bin"):  # binary
-        wm_mask = prf_binary(wm_windows_exp, listed_tokens_exp, wm_args.secret_key, gamma=wm_args.gamma)
+        wm_mask = prf_binary(wm_windows_exp, listed_tokens, wm_args.secret_key, gamma=wm_args.gamma)
         scores = wm_mask.float()
     elif method.startswith("uni"):  # uniform
-        wm_mask = prf_uniform(wm_windows_exp, listed_tokens_exp, wm_args.secret_key)
+        wm_mask = prf_uniform(wm_windows_exp, listed_tokens, wm_args.secret_key)
         scores = wm_mask.float()
     elif method == "none":
         scores = torch.zeros((batch_size, n_listed), device=device)

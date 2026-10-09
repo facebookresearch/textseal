@@ -200,37 +200,38 @@ class PostHocWatermarker:
     
     def rephrase_with_watermark(
         self,
-        text: str,
+        text: str | list[str],
         max_gen_len: int = None,
         temperature: float = None,
         top_p: float = None,
         context_chunks: list = None
-    ) -> str:
+    ) -> str | list[str]:
         """
         Rephrase text or generate answer using watermarked generation.
         
         Args:
-            text: Original text to rephrase OR prompt to answer (if generation_mode=True)
+            text: Original text to rephrase OR prompt to answer (if generation_mode=True); a list is generated as one batch
             max_gen_len: Maximum generation length (uses config default if None)
             temperature: Sampling temperature (uses config default if None)
             top_p: Top-p sampling parameter (uses config default if None)
             context_chunks: Optional list of previously rephrased chunks for context
         """        
-        # Create prompt.
+        texts = [text] if isinstance(text, str) else text
+        # Create prompts.
         reasoning_enabled = self.processing_config.reasoning.enabled
-        prompt = self.text_processor.create_prompt(
-            text,
+        prompts = [self.text_processor.create_prompt(
+            t,
             generation_mode=self.processing_config.generation_mode,
             context_chunks=context_chunks,
             enable_thinking=reasoning_enabled,
-        )
+        ) for t in texts]
         # Configure generation parameters.
         max_gen_len = max_gen_len or self.processing_config.max_gen_len
         if self.processing_config.generation_mode:
             generation_limit = max_gen_len
         else:
             # For rephrasing, set generation limit to original length + buffer to prevent runaway generation.
-            generation_limit = min(max_gen_len, len(text) + 500)
+            generation_limit = min(max_gen_len, max(len(t) for t in texts) + 500)
         # Generate watermarked text.
         # Pass reasoning end token to generator for max_tokens enforcement.
         reasoning_kwargs = {}
@@ -245,25 +246,28 @@ class PostHocWatermarker:
                 reasoning_kwargs["answer_prefill_ids"] = self.tokenizer.encode(
                     self.prompt_config.prefill_answer, add_special_tokens=False
                 )
-        watermarked_text = self.generator.generate(
-            prompts = [prompt],
+        generated = self.generator.generate(
+            prompts = prompts,
             max_gen_len = generation_limit,
             temperature = temperature or self.processing_config.temperature,
             top_p = top_p or self.processing_config.top_p,
             **reasoning_kwargs,
-        )[0]
-        # Clean up the response by removing assistant prefixes and extra text.
-        watermarked_text = self.text_processor.clean_generated_text(watermarked_text)
-        # When reasoning is enabled, the prompt template includes the start token (e.g. <think>)
-        # but it's not part of the generated output. Prepend it to reconstruct the full structure.
-        if reasoning_enabled:
-            start_token = self.processing_config.reasoning.start_token
-            if not watermarked_text.startswith(start_token):
-                watermarked_text = start_token + "\n" + watermarked_text
-        # Optional code post-processing
-        if self.evaluation_config.enable_code_evaluation:
-            watermarked_text = self.text_processor.post_process_code(watermarked_text)
-        return watermarked_text
+        )
+        outputs = []
+        for watermarked_text in generated:
+            # Clean up the response by removing assistant prefixes and extra text.
+            watermarked_text = self.text_processor.clean_generated_text(watermarked_text)
+            # When reasoning is enabled, the prompt template includes the start token (e.g. <think>)
+            # but it's not part of the generated output. Prepend it to reconstruct the full structure.
+            if reasoning_enabled:
+                start_token = self.processing_config.reasoning.start_token
+                if not watermarked_text.startswith(start_token):
+                    watermarked_text = start_token + "\n" + watermarked_text
+            # Optional code post-processing
+            if self.evaluation_config.enable_code_evaluation:
+                watermarked_text = self.text_processor.post_process_code(watermarked_text)
+            outputs.append(watermarked_text)
+        return outputs[0] if isinstance(text, str) else outputs
 
     def split_reasoning(self, text: str) -> tuple[str, str]:
         """Split text into (reasoning_trace, answer) at the reasoning end token."""
@@ -299,6 +303,8 @@ class PostHocWatermarker:
         top_p: float = None,
         aux_data: dict = None,
         context_chunks: list = None,
+        watermarked_text: str = None,
+        t_rephrase: float = 0.0,
     ) -> dict:
         """
         Process a document with post-hoc watermarking and evaluation.
@@ -311,19 +317,24 @@ class PostHocWatermarker:
             top_p: Top-p sampling parameter (uses config default if None)
             aux_data: Optional auxiliary data to use in results
             context_chunks: Optional list of previously rephrased chunks for context
-            
+            watermarked_text: Already generated text (batched generation); skips rephrasing
+            t_rephrase: Generation time to report when watermarked_text is given
+
         Returns:
             Dictionary with all results
         """
         start_time = time.time()
         # Step 1: Rephrase with watermark
-        watermarked_text = self.rephrase_with_watermark(
-            original_text,
-            max_gen_len=max_gen_len,
-            temperature=temperature,
-            top_p=top_p,
-            context_chunks=context_chunks
-        )
+        if watermarked_text is None:
+            watermarked_text = self.rephrase_with_watermark(
+                original_text,
+                max_gen_len=max_gen_len,
+                temperature=temperature,
+                top_p=top_p,
+                context_chunks=context_chunks
+            )
+        else:
+            start_time -= t_rephrase
         t1 = time.time()
         
         # Split reasoning trace from answer if reasoning mode is enabled.

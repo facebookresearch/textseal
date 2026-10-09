@@ -26,6 +26,7 @@ dependencies = [
     "rouge-score",
     "sacrebleu",
     "sentence-transformers>=3.0.0",
+    "bert-score",
     "sentencepiece",
     "tiktoken",
     "fsspec",
@@ -45,7 +46,7 @@ all = ["textseal[dev]"]
 Repository = "https://github.com/facebookresearch/textseal"
 
 [project.scripts]
-textseal-watermark = "textseal.posthoc.main:main"
+textseal-watermark = "textseal.watermarking.main:main"
 
 [tool.setuptools.packages.find]
 include = ["textseal*"]
