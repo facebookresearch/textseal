@@ -9,7 +9,18 @@ import torch
 from transformers import PreTrainedTokenizer, PreTrainedModel
 
 from textseal.watermarking.config import WatermarkConfig
-from textseal.watermarking.core import SYNTHID_ROUND_STRIDE, score_listed_tokens
+from textseal.watermarking.core import SYNTHID_ROUND_STRIDE, copula_scores, score_listed_tokens, synthid_official_g_values
+from textseal.watermarking.textgrain import TextGrainConfig, score_pairs
+
+
+def _token_ids(tokenizer, texts: list) -> list[list[int]]:
+    """Token ids of texts; lists of ids are passed through (scoring generated ids avoids re-tokenization)."""
+    if texts and not isinstance(texts[0], str):
+        return [list(x) for x in texts]
+    if hasattr(tokenizer, 'encode') and hasattr(tokenizer, 'decode') and not hasattr(tokenizer, 'add_special_tokens'):
+        # TikTokenTokenizer from textseal.wmtraining.lingua (doesn't have add_special_tokens method)
+        return [tokenizer.encode(x, add_bos=False, add_eos=False) for x in texts]
+    return [tokenizer.encode(x, add_special_tokens=False) for x in texts]
 
 class WmDetector():
     def __init__(self, 
@@ -85,7 +96,7 @@ class WmDetector():
         """
         Get score increment for each token in list of texts.
         Args:
-            texts: list of texts
+            texts: list of texts, or of token id lists
             scoring_method: 
                 'none': score all ngrams
                 'v1': only score tokens for which wm window is unique
@@ -101,12 +112,7 @@ class WmDetector():
             masks_lists (optional): list of [1 if token is scored, 0 otherwise] for each text
         """
         bsz = len(texts)
-        if hasattr(self.tokenizer, 'encode') and hasattr(self.tokenizer, 'decode') and not hasattr(self.tokenizer, 'add_special_tokens'):
-            # TikTokenTokenizer from textseal.wmtraining.lingua (doesn't have add_special_tokens method)
-            tokens_id = [self.tokenizer.encode(x, add_bos=False, add_eos=False) for x in texts]
-        else:
-            # HuggingFace tokenizer
-            tokens_id = [self.tokenizer.encode(x, add_special_tokens=False) for x in texts]
+        tokens_id = _token_ids(self.tokenizer, texts)
         if ntoks_max is not None:
             tokens_id = [x[:ntoks_max] for x in tokens_id]
         
@@ -126,7 +132,7 @@ class WmDetector():
         masks_lists = []
         for ii in range(bsz):
             total_len = len(tokens_id[ii])
-            start_pos = self.ngram + 1
+            start_pos = self.ngram
             rts = []  # list of score increments for each token
             mask_scored = []  # stores 1 for token if scored, 0 otherwise
             
@@ -341,6 +347,9 @@ class SynthidDetector(WmDetector):
 
     def _score_key(self, ngram_tokens, token_id, key):
         ngram_tokens_tensor = torch.tensor(ngram_tokens).unsqueeze(0)  # Shape: (1, ngram)
+        if self.wm_args.synthid_hash == "official":
+            g = synthid_official_g_values(ngram_tokens_tensor, torch.tensor([[token_id]]), key, self.wm_args.depth)[0, 0].cpu()
+            return (g * self.weights).sum().item()
         scores = score_listed_tokens(
             ngram_tokens_tensor, 
             replace(self.wm_args, secret_key=key), 
@@ -471,14 +480,14 @@ class TextSealDetector:
         scoring_method = scoring_method or self.scoring_method
         base_var = self.alpha ** 2 + (1 - self.alpha) ** 2
 
-        if len(token_ids) <= self.ngram + 1:
+        if len(token_ids) <= self.ngram:
             return {"p_value": 1.0, "n_tokens": 0, "detected": False, "entropy_weighted": False}
 
         fused_scores = []
         scored_entropies = []
         seen = set()
 
-        for pos in range(self.ngram + 1, len(token_ids)):
+        for pos in range(self.ngram, len(token_ids)):
             ctx = token_ids[pos - self.ngram:pos]
             tok = token_ids[pos]
             if scoring_method == "v1":
@@ -561,8 +570,7 @@ class TextSealDetector:
     ) -> list[list[float]] | tuple[list[list[float]], list[list[int]]]:
         score_lists = []
         masks_lists = []
-        for ii, text in enumerate(texts):
-            token_ids = self.tokenizer.encode(text, add_special_tokens=False)
+        for ii, token_ids in enumerate(_token_ids(self.tokenizer, texts)):
             if ntoks_max is not None:
                 token_ids = token_ids[:ntoks_max]
 
@@ -579,7 +587,7 @@ class TextSealDetector:
             config_a = replace(self.wm_config, secret_key=self.key_a)
             config_b = replace(self.wm_config, secret_key=self.key_b)
 
-            for pos in range(self.ngram + 1, len(token_ids)):
+            for pos in range(self.ngram, len(token_ids)):
                 ctx = token_ids[pos - self.ngram:pos]
                 tok = token_ids[pos]
                 mask_scored.append(0)
@@ -633,6 +641,43 @@ class TextSealDetector:
         return [self._score_text(tokens, entropies, scoring_method) for tokens, entropies in zip(token_lists, entropies_list)]
 
 
+class TextSeal2Detector(WmDetector):
+    """TextSeal2: score -log Phi(-G*), G* = (Phi^-1(u_A) + Phi^-1(u_B)) / sqrt 2, Exp(1) without watermark (Gamma test)."""
+
+    def score_tok(self, ngram_tokens, token_id):
+        keys = [self.wm_args.key_a, self.wm_args.key_b]
+        return copula_scores(torch.tensor([ngram_tokens]), torch.tensor([token_id]), keys, self.wm_args.prf).item()
+
+    def get_pvalue(self, score: float, ntoks: int, eps: float = 1e-200):
+        return max(float(special.gammaincc(ntoks, score)), eps) if ntoks else 1.0
+
+
+class TextGrainDetector(WmDetector):
+    """textGrain: score -log(1 - u) of the keyed cell (block of the token, column J), Exp(1) without watermark.
+    With key_routing, scores of keys A (secret_key) and B (secret_key + textgrain_key_b_offset) are mixed by mixing_alpha."""
+
+    def __init__(self, tokenizer: PreTrainedTokenizer, wm_args: WatermarkConfig, model: PreTrainedModel = None, **kwargs):
+        super().__init__(tokenizer, wm_args, model, **kwargs)
+        self.cfgs = [TextGrainConfig(key=key, h=wm_args.ngram, B=wm_args.textgrain_blocks, m=wm_args.textgrain_columns)
+                     for key in (wm_args.secret_key, wm_args.secret_key + wm_args.textgrain_key_b_offset)]
+
+    def score_keys(self, ngram_tokens, token_id):
+        return tuple(score_pairs(torch.tensor([ngram_tokens]), torch.tensor([token_id]), cfg).item() for cfg in self.cfgs)
+
+    def score_tok(self, ngram_tokens, token_id):
+        if self.wm_args.key_routing:
+            score_a, score_b = self.score_keys(ngram_tokens, token_id)
+            return self.alpha * score_a + (1 - self.alpha) * score_b
+        return self.score_keys(ngram_tokens, token_id)[0]
+
+    def get_pvalue(self, score: float, ntoks: int, eps: float = 1e-200, alpha: float = None):
+        if ntoks == 0:
+            return 1.0
+        a = self.alpha if alpha is None else alpha
+        base_var = a**2 + (1 - a) ** 2
+        return max(float(special.gammaincc(ntoks / base_var, score / base_var)), eps)
+
+
 @dataclass
 class LocalizedResult:
     global_pvalue: float
@@ -672,7 +717,7 @@ def localized_detect(
     alpha = wm_config.mixing_alpha
     base_var = alpha ** 2 + (1 - alpha) ** 2
 
-    if len(token_ids) <= wm_config.ngram + 1:
+    if len(token_ids) <= wm_config.ngram:
         return LocalizedResult(1.0, 1.0, 1.0, False, 0, 0, 0, [])
 
     # ---- Entropies (per token position) ----
@@ -691,7 +736,7 @@ def localized_detect(
     config_b = replace(wm_config, secret_key=wm_config.key_b)
     fused_scores: list[float] = []
     scored_entropies: list[float] = []
-    start_pos = wm_config.ngram + 1
+    start_pos = wm_config.ngram
     for pos in range(start_pos, len(token_ids)):
         ctx = token_ids[pos - wm_config.ngram:pos]
         tok = token_ids[pos]
@@ -718,7 +763,7 @@ def localized_detect(
 
     # ---- Delegate to the full adaptive ensemble (Section 3.3 of the paper) ----
     # Pass the FULL token_ids so adaptive_ensemble_detection can dedup correctly:
-    # by convention, scores[i] corresponds to tokens[i + ngram + 1].
+    # by convention, scores[i] corresponds to tokens[i + ngram].
     result = adaptive_ensemble_detection(
         scores=fused_scores,
         alpha=0.01,
@@ -805,17 +850,21 @@ def build_detector(
     # replace sampling method
     if wm_args.watermark_type in ["greenlist", "dipmark", "morphmark"] or wm_args.watermark_type.startswith("synthid"):
         sampling_method = "binary" 
-    elif wm_args.watermark_type in ["gumbelmax", "textseal"]:
+    elif wm_args.watermark_type in ["gumbelmax", "textseal", "textseal2", "automark", "textgrain", "none"]:
         sampling_method = "uniform"
     wm_args = replace(wm_args, method=sampling_method)
     
     # build detector
     if wm_args.watermark_type in ["greenlist", "dipmark", "morphmark"]:
         return GreenlistDetector(tokenizer, wm_args, model)
-    elif wm_args.watermark_type == "gumbelmax":
+    elif wm_args.watermark_type in ("gumbelmax", "automark"):
         return GumbelmaxDetector(tokenizer, wm_args, model)
     elif wm_args.watermark_type == "textseal":
         return TextSealDetector(tokenizer, wm_args, model, wm_args.scoring_method)
+    elif wm_args.watermark_type == "textseal2":
+        return TextSeal2Detector(tokenizer, wm_args, model)
+    elif wm_args.watermark_type == "textgrain":
+        return TextGrainDetector(tokenizer, wm_args, model)
     elif wm_args.watermark_type.startswith("synthid"):
         weighted = "weighted" in wm_args.watermark_type
         return SynthidDetector(tokenizer, wm_args, model, weighted)

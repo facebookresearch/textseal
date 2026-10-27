@@ -40,9 +40,9 @@ def _family(wm_config) -> str:
 
 
 def _kept_positions(token_ids, ngram, scoring_method):
-    """Positions the detector scores: from ngram + 1, deduplicated as in get_scores_by_t."""
+    """Positions the detector scores: from ngram, deduplicated as in get_scores_by_t."""
     seen, kept = set(), []
-    for p in range(ngram + 1, len(token_ids)):
+    for p in range(ngram, len(token_ids)):
         if scoring_method == "v1":
             key = tuple(token_ids[p - ngram:p])
         elif scoring_method == "v2":

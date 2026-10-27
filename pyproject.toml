@@ -40,6 +40,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "black", "ruff"]
+textseal2 = ["synthid-text", "triton", "matplotlib"]  # Official SynthID g-values, textGrain kernel, paper figures
 all = ["textseal[dev]"]
 
 [project.urls]

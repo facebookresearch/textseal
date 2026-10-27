@@ -77,8 +77,9 @@ class WatermarkConfig:
     ngram: int = 1
 
     # Watermark type and method
-    watermark_type: str = "gumbelmax"  # "greenlist", "gumbelmax", "dipmark", "synthid", "watermax", "textseal", "none"
+    watermark_type: str = "gumbelmax"  # "greenlist", "gumbelmax", "dipmark", "synthid", "watermax", "textseal", "textseal2", "automark", "textgrain", "none"
     method: str = "uniform"  # "binary", "uniform": the pseudorandom function method
+    prf: str = "textseal"  # Keyed hash of the uniform method: "textseal" (13-bit) or "hires" (53-bit splitmix64, needs ngram=3)
 
     # Generation-specific parameters
     gamma: float = 0.5  # greenlist fraction
@@ -88,6 +89,22 @@ class WatermarkConfig:
     after_topp: bool = True  # For greenlist: apply bias after top-p filtering if True
     k_morphmark: float = 1.30  # For MorphMark
     p_0: float = 0.15  # For MorphMark
+    rho: float = 0.9  # Copulas (textseal2, automark): weight of the keyed Gaussian vs fresh noise
+    synthid_hash: str = "textseal"  # SynthID g-values: "textseal" (TextSeal's PRF) or "official" (google-deepmind/synthid-text)
+    textgrain_beta: float = 0.5  # textGrain: target fraction of the next-token entropy removed
+    textgrain_blocks: int = 256  # textGrain: vocabulary blocks B
+    textgrain_columns: int = 256  # textGrain: columns m
+    textgrain_solver: str = "torch"  # textGrain coupling solver: "torch" (float64) or "chunked32" / "chunked64" (Triton)
+    textgrain_key_b_offset: int = 4200  # textGrain: key B = secret_key + offset (speculative decoding)
+    # Repeated windows within an answer: "reuse" (same keyed values), "skip" (sample without watermark),
+    # "per_key" (textseal: use the other key, then sample without watermark)
+    repeated_windows: str = "reuse"
+
+    # Speculative decoding (textseal.watermarking.speculative)
+    num_speculative_tokens: int = 8  # Drafts per target call (0: target only)
+    verification: str = "block"  # "block" (Sun et al., 2025) or "token"
+    spec_decision: str = "residual_j"  # textseal2: block "residual_j" | "fresh_stop" | "tau_stop" | "agreement" | "j_only" | "raw_j"; token "residual" | "agreement"
+    textgrain_verify_watermarked: bool = False  # textgrain: verify the watermarked laws (textGrain's own recipe)
 
     # WaterMax-specific parameters
     chunk_size: int = 4  # L: number of tokens per chunk in WaterMax
@@ -108,13 +125,17 @@ class WatermarkConfig:
     key_routing: bool = False  # greenlist/synthid: route each token to key A or B, as textseal does
 
     def __post_init__(self):
-        if self.key_routing and not (self.watermark_type in ("textseal", "greenlist")
+        if self.key_routing and not (self.watermark_type in ("textseal", "greenlist", "textgrain")
                                      or self.watermark_type.startswith("synthid")):
-            raise ValueError(f"key_routing applies to greenlist and synthid, not {self.watermark_type!r}")
+            raise ValueError(f"key_routing applies to greenlist, synthid and textgrain, not {self.watermark_type!r}")
+        if self.prf not in ("textseal", "hires"):
+            raise ValueError(f"Unknown prf {self.prf!r}")
+        if self.repeated_windows not in ("reuse", "skip", "per_key"):
+            raise ValueError(f"Unknown repeated_windows {self.repeated_windows!r}")
 
     @property
     def dual_key(self) -> bool:
-        return self.watermark_type == "textseal" or self.key_routing
+        return self.watermark_type in ("textseal", "textseal2") or self.key_routing
 
     @property
     def key_a(self) -> int:
