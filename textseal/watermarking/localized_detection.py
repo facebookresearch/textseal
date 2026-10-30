@@ -202,9 +202,9 @@ def _dedup_window(
     out_weights = [] if weights is not None else None
     seen = set()
     for pos in range(start, end):
-        # pos in `scores` corresponds to token at index pos+ngram+1 in `tokens`
-        # (because scores skip the first ngram+1 positions during generation)
-        tok_pos = pos + ngram + 1
+        # pos in `scores` corresponds to token at index pos+ngram in `tokens`
+        # (scores start at the first token with a full window)
+        tok_pos = pos + ngram
         if tok_pos - ngram < 0 or tok_pos >= len(tokens):
             continue
         ctx = tuple(tokens[tok_pos - ngram:tok_pos])
@@ -341,7 +341,7 @@ def _multi_region_corrected_log_p(
     for y, (s, e, _) in enumerate(regions[:y_max], start=1):
         # Accumulate region [s,e) with cross-region dedup.
         for pos in range(s, e):
-            tok_pos = pos + ngram + 1
+            tok_pos = pos + ngram
             if tokens is not None and 0 <= tok_pos - ngram and tok_pos < len(tokens):
                 ctx = tuple(tokens[tok_pos - ngram:tok_pos])
                 tok = tokens[tok_pos]

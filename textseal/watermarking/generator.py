@@ -9,12 +9,26 @@ from transformers.cache_utils import DynamicCache
 from textseal.watermarking.config import WatermarkConfig
 from textseal.watermarking.core import (
     SYNTHID_ROUND_STRIDE,
+    copula_clocks,
     fast_prf_dual,
     prf_dual,
+    race,
     score_all_next_tokens,
     score_listed_tokens,
+    synthid_official_g_values,
 )
 from textseal.watermarking.detector import build_detector
+from textseal.watermarking.textgrain import TextGrainConfig, textgrain_law
+
+
+def topp_law(logits: torch.Tensor, temperature: float, top_p: float) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Temperature + top-p law, as WmGenerator.sample_next: full-vocab law (b, V), sorted probs (b, V), sorted ids (b, V)."""
+    probs = torch.softmax(logits.float() / temperature, dim=-1)
+    probs_sort, probs_idx = torch.sort(probs, dim=-1, descending=True)
+    mask = torch.cumsum(probs_sort, dim=-1) - probs_sort > top_p
+    probs_sort[mask] = 0.0
+    probs_sort.div_(probs_sort.sum(dim=-1, keepdim=True))
+    return torch.zeros_like(probs).scatter_(1, probs_idx, probs_sort), probs_sort, probs_idx
 
 
 def _make_cache(model: PreTrainedModel) -> DynamicCache:
@@ -26,7 +40,11 @@ def _make_cache(model: PreTrainedModel) -> DynamicCache:
             return Qwen3_5DynamicCache(model.config)
         except (ImportError, Exception):
             pass
-    return DynamicCache()
+    try:
+        # transformers >= 5 builds per-layer caches (e.g. linear-attention layers of hybrid models) from the config.
+        return DynamicCache(config=model.config)
+    except TypeError:
+        return DynamicCache()
 
 class WmGenerator():
     def __init__(
@@ -38,19 +56,24 @@ class WmGenerator():
         # model config
         self.tokenizer = tokenizer
         self.model = model
-        if hasattr(model.config, 'max_sequence_length'):
-            self.max_seq_len = model.config.max_sequence_length
-        elif hasattr(model.config, 'max_position_embeddings'):
-            self.max_seq_len = model.config.max_position_embeddings
-        else:
-            self.max_seq_len = 4096  # Default fallback
+        # Multimodal configs (e.g. Qwen3.5) keep these fields in the text config.
+        text_config = model.config.get_text_config() if hasattr(model.config, "get_text_config") else model.config
+        self.max_seq_len = (
+            getattr(model.config, "max_sequence_length", None)
+            or getattr(model.config, "max_position_embeddings", None)
+            or getattr(text_config, "max_position_embeddings", None)
+            or 4096
+        )
             
         # Handle EOS tokens generically
         self.eos_id = self._get_eos_tokens()
         
         # Handle pad token
-        if model.config.pad_token_id is not None:
-            self.pad_id = model.config.pad_token_id
+        pad_token_id = getattr(model.config, "pad_token_id", None)
+        if pad_token_id is None:
+            pad_token_id = getattr(text_config, "pad_token_id", None)
+        if pad_token_id is not None:
+            self.pad_id = pad_token_id
         elif self.eos_id is not None:
             # Use first EOS token as pad token if no pad token is set
             self.pad_id = self.eos_id[0] if isinstance(self.eos_id, list) else self.eos_id
@@ -81,9 +104,16 @@ class WmGenerator():
                 else:
                     self.model.config.eos_token_id = [self.model.config.eos_token_id, self.tokenizer.convert_tokens_to_ids("<end_of_turn>")]
             return self.model.config.eos_token_id
-        else:
-            print("No EOS token found, defaulting to None")
-            return None
+        eos = set()
+        text_config = self.model.config.get_text_config() if hasattr(self.model.config, "get_text_config") else None
+        generation_config = getattr(self.model, "generation_config", None)
+        for src in (getattr(text_config, "eos_token_id", None), getattr(generation_config, "eos_token_id", None)):
+            if src is not None:
+                eos |= set(src if isinstance(src, (list, tuple)) else [src])
+        if eos:
+            return sorted(eos)
+        print("No EOS token found, defaulting to None")
+        return None
 
     def _encode_prompts(self, prompts: list[str]) -> list[list[int]]:
         """Encode prompts using HuggingFace tokenizer."""
@@ -91,33 +121,37 @@ class WmGenerator():
     
     def _get_vocab_size(self) -> int:
         """Get vocabulary size from HuggingFace model."""
-        return self.model.config.vocab_size
+        return getattr(self.model.config, "vocab_size", None) or self.model.config.get_text_config().vocab_size
 
     @torch.no_grad()
     def generate(
         self,
-        prompts: list[str],
+        prompts: list[str] | list[list[int]],
         max_gen_len: int,
         temperature: float = 0.8,
         top_p: float = 0.95,
         reasoning_end_token_ids: list[int] = None,
         max_reasoning_tokens: int = 0,
         answer_prefill_ids: list[int] = None,
-    ) -> list[str]:
+        return_ids: bool = False,
+    ) -> list[str] | list[list[int]]:
         """
         Generate text from prompts. 
         Adapted from https://github.com/facebookresearch/llama/
         
         Args:
+            prompts: Strings, or already tokenized prompts (lists of token ids).
             reasoning_end_token_ids: Token IDs for the reasoning end marker (e.g. </think>).
                 When set with max_reasoning_tokens > 0, forces reasoning to stop.
             max_reasoning_tokens: Max tokens before forcing reasoning_end_token_ids (0 = unlimited).
             answer_prefill_ids: Token IDs to force-inject after reasoning ends (start of answer).
+            return_ids: Return the generated token ids (EOS excluded) instead of decoded strings.
         """
         
         bsz = len(prompts)
         # Generic tokenizer encoding
-        prompt_tokens = self._encode_prompts(prompts)
+        prompt_tokens = [list(p) for p in prompts] if prompts and not isinstance(prompts[0], str) else self._encode_prompts(prompts)
+        self._seen: list[set] = [set() for _ in prompt_tokens]
         min_prompt_size = min([len(t) for t in prompt_tokens])
         max_prompt_size = max([len(t) for t in prompt_tokens])
         total_len = min(self.max_seq_len, max_gen_len + max_prompt_size)
@@ -126,7 +160,9 @@ class WmGenerator():
         for k, t in enumerate(prompt_tokens):
             tokens[k, : len(t)] = torch.tensor(t).long()
         tokens = tokens.to(self.model.device)
-        input_text_mask = tokens != self.pad_id
+        input_text_mask = torch.zeros_like(tokens, dtype=torch.bool)
+        for k, t in enumerate(prompt_tokens):
+            input_text_mask[k, : len(t)] = True
 
         start_pos = min_prompt_size
         prev_pos = 0
@@ -153,7 +189,10 @@ class WmGenerator():
             )
             past_key_values = outputs.past_key_values
             ngram_tokens = tokens[:, cur_pos-self.ngram:cur_pos]
+            self._rows = (~input_text_mask[:, cur_pos] & ~eos_reached).tolist()  # rows generating at this step
             next_toks = self.sample_next(outputs.logits[:, -1, :], ngram_tokens, temperature, top_p)
+            if self.wm_args.repeated_windows == "skip" and temperature > 0:
+                next_toks = self._sample_repeated_freely(next_toks, ngram_tokens, outputs.logits[:, -1, :], temperature, top_p)
             
             if force_reasoning_end:
                 for ii in range(bsz):
@@ -205,9 +244,22 @@ class WmGenerator():
                     t = t[:min(eos_positions)]
             except ValueError:
                 pass
-            decoded.append(self.tokenizer.decode(t))
+            decoded.append(t if return_ids else self.tokenizer.decode(t))
 
         return decoded
+
+    def _sample_repeated_freely(self, next_toks, ngram_tokens, logits, temperature: float, top_p: float) -> torch.LongTensor:
+        """Rows whose window already occurred in their answer get a draw from the model without watermark."""
+        windows = [tuple(w) for w in ngram_tokens.tolist()]
+        repeated = torch.zeros(len(windows), dtype=torch.bool, device=next_toks.device)
+        for ii, generating in enumerate(self._rows):
+            if generating:
+                repeated[ii] = windows[ii] in self._seen[ii]
+                self._seen[ii].add(windows[ii])
+        if bool(repeated.any()):
+            law = topp_law(logits, temperature, top_p)[0]
+            next_toks = torch.where(repeated, torch.multinomial(law, 1).squeeze(1), next_toks)
+        return next_toks
     
     def sample_next(
         self,
@@ -576,14 +628,17 @@ class SynthidGenerator(WmGenerator):
         for key, rows in ((self.wm_args.secret_key, rows_a), (self.wm_args.key_b, ~rows_a)):
             if not rows.any():
                 continue
+            if self.wm_args.synthid_hash == "official":
+                g_values[rows] = synthid_official_g_values(ngram_tokens[rows], safe_tokens[rows], key, depth) * valid_mask[rows].unsqueeze(-1)
+                continue
             wm_args_key = replace(self.wm_args, secret_key=key)
             for dd in range(depth):
                 scores = score_listed_tokens(ngram_tokens[rows], wm_args_key, safe_tokens[rows] + SYNTHID_ROUND_STRIDE * dd)
                 g_values[rows, :, dd] = scores * valid_mask[rows]
         return g_values
 
+    @staticmethod
     def update_probs(
-        self, 
         probs: torch.FloatTensor, 
         g_values: torch.FloatTensor,
         num_leaves: int = 2,
@@ -723,8 +778,8 @@ class WaterMaxGenerator(WmGenerator):
         ntoks_scored = 0
         seen_ntuples = set()
         
-        # Start scoring after the ngram context
-        start_pos = self.ngram + 1
+        # Start scoring at the first token with a full window (as the detectors)
+        start_pos = self.ngram
         
         for cur_pos in range(start_pos, len(combined)):
             ngram_tokens = combined[cur_pos - self.ngram:cur_pos]
@@ -942,198 +997,67 @@ class TextSealGenerator(WmGenerator):
         else:
             r_a, r_b = prf_dual(ngram_tokens, probs_idx, self.key_a, self.key_b)
 
+        if self.wm_args.repeated_windows == "per_key":
+            return self._sample_per_key(probs_sort, probs_idx, ngram_tokens, r_a, r_b)
         r = torch.where(self.use_key_a(logits.shape[0], logits.device).unsqueeze(1), r_a, r_b)
         scores = torch.log(r + 1e-30) / (probs_sort + 1e-30)
         next_token = torch.argmax(scores, dim=-1, keepdim=True)
         return torch.gather(probs_idx, -1, next_token).reshape(-1)
 
-
-def _score_all_textseal(ngram_tokens: torch.Tensor, sk: int, vocab_size: int) -> torch.Tensor:
-    all_tokens = torch.arange(vocab_size, device=ngram_tokens.device)
-    return score_listed_tokens(ngram_tokens, replace(WatermarkConfig(), secret_key=sk), all_tokens)
-
-
-def _gumbel_max_sample(
-    logits: torch.Tensor,
-    uniform_scores: torch.Tensor,
-    temperature: float,
-    top_p: float,
-) -> torch.Tensor:
-    if temperature <= 0:
-        return torch.argmax(logits, dim=-1)
-
-    scaled = logits / temperature
-    if top_p < 1.0:
-        sorted_logits, sorted_idx = torch.sort(scaled, descending=True, dim=-1)
-        cumulative = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
-        remove = cumulative > top_p
-        remove[..., 1:] = remove[..., :-1].clone()
-        remove[..., 0] = False
-        mask = remove.scatter(dim=-1, index=sorted_idx, src=remove)
-        scaled = scaled.masked_fill(mask, float("-inf"))
-
-    probs = torch.softmax(scaled, dim=-1)
-    r = torch.clamp(uniform_scores, 1e-10, 1 - 1e-10)
-    gumbel = -torch.log(-torch.log(r))
-    log_p = torch.where(probs > 0, torch.log(probs), torch.full_like(probs, float("-inf")))
-    return torch.argmax(log_p + gumbel, dim=-1)
-
-
-def _collect_eos(model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> list[int]:
-    ids = set()
-    eos = getattr(model.config, "eos_token_id", None)
-    if eos is not None:
-        ids.update(eos if isinstance(eos, list) else [eos])
-    tok_eos = getattr(tokenizer, "eos_token_id", None)
-    if tok_eos is not None:
-        ids.add(tok_eos)
-    return sorted(ids)
-
-
-class SpeculativeGenerator:
-    """Generate TextSeal watermarked text with speculative decoding."""
-
-    def __init__(
-        self,
-        draft_model: PreTrainedModel,
-        target_model: PreTrainedModel,
-        tokenizer: PreTrainedTokenizer,
-        wm_args: WatermarkConfig,
-        num_speculative_tokens: int = 4,
-    ):
-        self.draft_model = draft_model
-        self.target_model = target_model
-        self.tokenizer = tokenizer
-        self.wm_args = wm_args
-        self.num_speculative_tokens = num_speculative_tokens
-        self.ngram = wm_args.ngram
-        self.key_a = wm_args.key_a
-        self.key_b = wm_args.key_b
-        self.max_seq_len = getattr(target_model.config, "max_position_embeddings", None) or 4096
-        self.pad_id = getattr(target_model.config, "pad_token_id", None) or 0
-        self.eos_ids = _collect_eos(target_model, tokenizer)
-        self.vocab_size = getattr(target_model.config, "vocab_size", 128256)
-        self.total_accepted = 0
-        self.total_drafted = 0
-
-    def _get_ngram(self, all_tokens: list[int], pos: int) -> torch.Tensor:
-        if pos >= self.ngram:
-            ctx = all_tokens[pos - self.ngram:pos]
-        else:
-            ctx = [0] * (self.ngram - pos) + all_tokens[:pos]
-        return torch.tensor([ctx], device=self.target_model.device)
-
-    @torch.no_grad()
-    def generate(
-        self,
-        prompts: list[str],
-        max_gen_len: int,
-        temperature: float = 0.8,
-        top_p: float = 0.95,
-    ) -> list[str]:
-        assert len(prompts) == 1, "Speculative decoding supports batch_size=1 only"
-
-        prompt_tokens = self.tokenizer.encode(prompts[0], add_special_tokens=False)
-        device = self.target_model.device
-        total_len = min(self.max_seq_len, max_gen_len + len(prompt_tokens))
-        tokens = torch.full((1, total_len), self.pad_id, dtype=torch.long, device=device)
-        tokens[0, :len(prompt_tokens)] = torch.tensor(prompt_tokens, device=device)
-
-        cur_pos = len(prompt_tokens)
-        self.total_accepted = 0
-        self.total_drafted = 0
-
-        while cur_pos < total_len:
-            all_tokens = tokens[0, :cur_pos].tolist()
-            draft_ctx = tokens[0, :cur_pos].unsqueeze(0)
-            draft_out = self.draft_model.forward(draft_ctx, use_cache=True)
-            draft_cache = draft_out.past_key_values
-            draft_logits_first = draft_out.logits[:, -1, :]
-
-            draft_tokens = []
-            draft_logits_list = []
-            for kk in range(self.num_speculative_tokens):
-                if cur_pos + len(draft_tokens) >= total_len:
-                    break
-                if kk == 0:
-                    draft_logits = draft_logits_first
-                else:
-                    token_tensor = torch.tensor([[draft_tokens[-1]]], device=device)
-                    draft_out = self.draft_model.forward(
-                        token_tensor,
-                        use_cache=True,
-                        past_key_values=draft_cache,
-                    )
-                    draft_cache = draft_out.past_key_values
-                    draft_logits = draft_out.logits[:, -1, :]
-
-                draft_logits_list.append(draft_logits)
-                pos = cur_pos + len(draft_tokens)
-                ngram_tokens = self._get_ngram(all_tokens + draft_tokens, pos)
-                scores = _score_all_textseal(ngram_tokens, self.key_a, self.vocab_size)
-                next_token = _gumbel_max_sample(draft_logits, scores, temperature, top_p)
-                draft_tokens.append(next_token.item())
-
-            if not draft_tokens:
-                break
-            self.total_drafted += len(draft_tokens)
-
-            verify_ctx = tokens[0, :cur_pos].unsqueeze(0)
-            for draft_token in draft_tokens:
-                verify_ctx = torch.cat([verify_ctx, torch.tensor([[draft_token]], device=device)], dim=1)
-            target_out = self.target_model.forward(verify_ctx)
-
-            num_accepted = 0
-            for kk, draft_token in enumerate(draft_tokens):
-                verify_pos = cur_pos + kk
-                if verify_pos >= total_len:
-                    break
-                target_logits = target_out.logits[:, cur_pos + kk - 1, :]
-                draft_logits = draft_logits_list[kk]
-                target_probs = torch.softmax(target_logits / temperature, dim=-1)
-                draft_probs = torch.softmax(draft_logits / temperature, dim=-1)
-                accept = min(1.0, target_probs[0, draft_token].item() / (draft_probs[0, draft_token].item() + 1e-10))
-
-                if torch.rand(1).item() < accept:
-                    tokens[0, verify_pos] = draft_token
-                    num_accepted += 1
-                    if draft_token in self.eos_ids:
-                        cur_pos = verify_pos + 1
-                        self.total_accepted += num_accepted
-                        break
-                else:
-                    diff = torch.clamp(target_probs - draft_probs, min=0)
-                    if diff.sum() < 1e-10:
-                        diff = target_probs.clone()
-                    diff = diff / diff.sum(dim=-1, keepdim=True)
-                    ngram_tokens = self._get_ngram(tokens[0, :verify_pos].tolist(), verify_pos)
-                    scores = _score_all_textseal(ngram_tokens, self.key_b, self.vocab_size)
-                    new_token = _gumbel_max_sample(torch.log(diff + 1e-30) * temperature, scores, temperature, top_p)
-                    tokens[0, verify_pos] = new_token.item()
-                    cur_pos = verify_pos + 1
-                    self.total_accepted += num_accepted
-                    break
-            else:
-                self.total_accepted += num_accepted
-                cur_pos += len(draft_tokens)
-                if cur_pos < total_len:
-                    ngram_tokens = self._get_ngram(tokens[0, :cur_pos].tolist(), cur_pos)
-                    bonus_out = self.target_model.forward(tokens[0, :cur_pos].unsqueeze(0))
-                    scores = _score_all_textseal(ngram_tokens, self.key_a, self.vocab_size)
-                    bonus_token = _gumbel_max_sample(bonus_out.logits[:, -1, :], scores, temperature, top_p)
-                    tokens[0, cur_pos] = bonus_token.item()
-                    cur_pos += 1
+    def _sample_per_key(self, probs_sort, probs_idx, ngram_tokens, r_a, r_b) -> torch.LongTensor:
+        """Each key's values at a window are used at most once per answer: the routed key if unused, else the other key,
+        else a draw without watermark."""
+        keyed = torch.stack([torch.gather(probs_idx, -1, torch.argmax(torch.log(r + 1e-30) / (probs_sort + 1e-30), dim=-1, keepdim=True))[:, 0]
+                             for r in (r_a, r_b)], 1)  # b 2
+        use_a = self.use_key_a(probs_sort.shape[0], probs_sort.device).tolist()
+        next_token = torch.gather(probs_idx, -1, torch.multinomial(probs_sort, 1))[:, 0]
+        windows = [tuple(w) for w in ngram_tokens.tolist()]
+        for ii, generating in enumerate(self._rows):
+            if not generating:
                 continue
+            first = 0 if use_a[ii] else 1
+            for k in (first, 1 - first):
+                if (windows[ii], k) not in self._seen[ii]:
+                    self._seen[ii].add((windows[ii], k))
+                    next_token[ii] = keyed[ii, k]
+                    break
+        return next_token
 
-            if cur_pos > len(prompt_tokens) and tokens[0, cur_pos - 1].item() in self.eos_ids:
-                break
 
-        generated_tokens = tokens[0, len(prompt_tokens):cur_pos].tolist()
-        for eos_id in self.eos_ids:
-            if eos_id in generated_tokens:
-                generated_tokens = generated_tokens[:generated_tokens.index(eos_id)]
-                break
-        return [self.tokenizer.decode(generated_tokens)]
+class CopulaGenerator(WmGenerator):
+    """
+    Copula race: next token = argmin_v E_v / p_v with keyed copula clocks (core.copula_clocks).
+    textseal2: TextSeal2, the virtual key G* = (G_A + G_B) / sqrt 2 blended with fresh noise by rho.
+    automark: AutoMark's copula, key A blended with fresh noise by rho.
+    Distortion-free for any key; detection scores -log Phi(-G*) (TextSeal2Detector) or -log(1 - u_A) (GumbelmaxDetector).
+    """
+
+    def __init__(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, wm_args: WatermarkConfig):
+        super().__init__(model, tokenizer, wm_args)
+        self.keys = [wm_args.key_a, wm_args.key_b] if wm_args.watermark_type == "textseal2" else [wm_args.key_a]
+
+    def sample_next(self, logits: torch.FloatTensor, ngram_tokens: torch.LongTensor, temperature: float = 0.8, top_p: float = 0.95) -> torch.LongTensor:
+        if temperature <= 0:
+            return torch.argmax(logits, dim=-1).reshape(-1)
+        _, probs_sort, probs_idx = topp_law(logits, temperature, top_p)
+        clocks = copula_clocks(ngram_tokens, probs_idx, self.keys, self.wm_args.rho, self.wm_args.prf, eps=1e-7)
+        return torch.gather(probs_idx, -1, race(clocks, probs_sort)[:, None]).reshape(-1)
+
+
+class TextGrainGenerator(WmGenerator):
+    """textGrain (textseal.watermarking.textgrain): a fresh draw from the keyed law Q(. | J) of an entropy-budgeted coupling."""
+
+    def __init__(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, wm_args: WatermarkConfig):
+        super().__init__(model, tokenizer, wm_args)
+        self.cfg = TextGrainConfig(key=wm_args.secret_key, h=wm_args.ngram, B=wm_args.textgrain_blocks, m=wm_args.textgrain_columns,
+                                   beta=wm_args.textgrain_beta)
+
+    def sample_next(self, logits: torch.FloatTensor, ngram_tokens: torch.LongTensor, temperature: float = 0.8, top_p: float = 0.95) -> torch.LongTensor:
+        if temperature <= 0:
+            return torch.argmax(logits, dim=-1).reshape(-1)
+        _, probs_sort, probs_idx = topp_law(logits, temperature, top_p)
+        law, ids, _ = textgrain_law(probs_sort, probs_idx, ngram_tokens, self.cfg, self.wm_args.textgrain_solver)
+        return ids.gather(1, torch.multinomial(law.float(), 1)).reshape(-1)
 
 
 class BeamSearchGenerator(WmGenerator):
@@ -1410,6 +1334,10 @@ def build_generator(
         base_generator = GumbelmaxGenerator(model, tokenizer, wm_args)
     elif wm_args.watermark_type == "textseal":
         base_generator = TextSealGenerator(model, tokenizer, wm_args)
+    elif wm_args.watermark_type in ("textseal2", "automark"):
+        base_generator = CopulaGenerator(model, tokenizer, wm_args)
+    elif wm_args.watermark_type == "textgrain":
+        base_generator = TextGrainGenerator(model, tokenizer, wm_args)
     elif wm_args.watermark_type == "dipmark":
         base_generator = DipmarkGenerator(model, tokenizer, wm_args)
     elif wm_args.watermark_type == "morphmark":

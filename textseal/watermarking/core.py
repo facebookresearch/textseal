@@ -7,6 +7,7 @@ Run with:
 
 import ast
 import json
+import math
 
 import numpy as np
 import torch
@@ -153,6 +154,114 @@ def fast_prf_dual(
     sk_a_t = torch.tensor(sk_a, dtype=torch.long, device=w.device)
     sk_b_t = torch.tensor(sk_b, dtype=torch.long, device=w.device)
     return _prf_dual_compiled(w_weighted, token_ids, sk_a_t, sk_b_t)
+
+
+_HIRES_C1, _HIRES_C2 = -4658895280553007687, -7723592293110705685
+PRF_EPS = {"textseal": 1e-7, "hires": 1e-15}  # Clamp of keyed uniforms before Phi^-1 in the copulas.
+
+
+def _lsr(x: torch.Tensor, k: int) -> torch.Tensor:
+    return (x >> k) & ((1 << (64 - k)) - 1)
+
+
+def prf_hires(w: torch.Tensor, x_k: torch.Tensor, sk: int) -> torch.Tensor:
+    """
+    53-bit PRF: splitmix64 of (window of 3 tokens, token, key) -> float64 uniforms in (0, 1).
+    w (..., 3) windows; x_k has the leading shape of w, or one more dimension (tokens per window).
+    """
+    w, x_k = w.long(), x_k.to(w.device).long()
+    h = w[..., 0] * 1000003 + w[..., 1] * 998244353 + w[..., 2] * 1000000007
+    if h.dim() < x_k.dim():
+        h = h.unsqueeze(-1)
+    h = h * 0x9E3779B9 + x_k * 2654435761 + int(sk) * 40503
+    for _ in range(2):
+        h = h + 7046029254386353131
+        h = (h ^ _lsr(h, 30)) * _HIRES_C1
+        h = (h ^ _lsr(h, 27)) * _HIRES_C2
+        h = h ^ _lsr(h, 31)
+    return (_lsr(h, 11).double() + 0.5) / float(1 << 53)
+
+
+def keyed_uniform(w: torch.Tensor, x_k: torch.Tensor, sk: int, prf: str = "textseal") -> torch.Tensor:
+    """Keyed uniforms of (window, token) pairs with the chosen PRF, as float64. w (b, k), x_k (b, n) -> (b, n)."""
+    if prf == "hires":
+        return prf_hires(w, x_k, sk)
+    if w.is_cuda:
+        return fast_prf_scores(w, x_k, int(sk)).double()
+    return prf_uniform(w, x_k, int(sk)).double()
+
+
+_NORMALS: dict = {}
+
+
+def _normal(device: torch.device) -> torch.distributions.Normal:
+    if str(device) not in _NORMALS:
+        zero = torch.tensor(0.0, device=device, dtype=torch.float64)
+        _NORMALS[str(device)] = torch.distributions.Normal(zero, torch.ones_like(zero))
+    return _NORMALS[str(device)]
+
+
+def copula_clocks(
+    w: torch.Tensor, x_k: torch.Tensor, keys: list[int], rho: float, prf: str = "hires", eps: float | None = None
+) -> torch.Tensor:
+    """
+    Keyed copula clocks E = -log Phi(rho G* + sqrt(1 - rho^2) eta), G* = sum_k Phi^-1(u_k) / sqrt(K), eta ~ N(0, 1) fresh.
+    Two keys give TextSeal2's virtual key, one key AutoMark's copula. E are i.i.d. Exp(1) over keys and noise, so the race
+    argmin_v E_v / p_v samples exactly from p. w (b, 3), x_k (b, n) -> (b, n) float64; noise drawn only when rho < 1.
+    """
+    eps = PRF_EPS[prf] if eps is None else eps
+    nd = _normal(w.device)
+    gauss = [nd.icdf(keyed_uniform(w, x_k, k, prf).clamp(eps, 1 - eps)) for k in keys]
+    z = sum(gauss) / math.sqrt(len(keys))
+    if rho < 1.0:
+        z = rho * z + math.sqrt(1 - rho**2) * torch.randn_like(z)
+    return -torch.log(nd.cdf(z).clamp(eps, 1 - eps))
+
+
+def copula_scores(w: torch.Tensor, x_k: torch.Tensor, keys: list[int], prf: str = "hires") -> torch.Tensor:
+    """Detection scores -log Phi(-G*) of (window, token) pairs, Exp(1) without watermark. w (n, 3), x_k (n,) -> (n,)."""
+    nd = _normal(w.device)
+    gauss = [nd.icdf(keyed_uniform(w, x_k[:, None], k, prf)[:, 0].clamp(1e-12, 1 - 1e-12)) for k in keys]
+    return -torch.log(nd.cdf(-sum(gauss) / math.sqrt(len(keys))).clamp_min(1e-300))
+
+
+def race(clocks: torch.Tensor, probs: torch.Tensor) -> torch.Tensor:
+    """Index of argmin clocks / probs over the support of probs, along the last dimension."""
+    ratio = torch.where(probs > 0, clocks / probs.double().clamp(min=1e-300), torch.full_like(clocks, float("inf")))
+    return torch.argmin(ratio, dim=-1)
+
+
+def leftover_race(clocks: torch.Tensor, q: torch.Tensor, r: torch.Tensor, x: int) -> int:
+    """Exact draw from r after rejecting x = race(clocks, q): argmin_v (clocks_v - tau q_v) / r_v, tau = clocks_x / q_x."""
+    tau = float(clocks[x] / q[x])
+    gaps = torch.where(q > 0, clocks - tau * q, clocks) / r.clamp(min=1e-300)
+    gaps = torch.where(r > 0, gaps, torch.full_like(gaps, float("inf")))
+    gaps[x] = float("inf")
+    return int(torch.argmin(gaps))
+
+
+_SYNTHID_PROCESSORS: dict = {}
+
+
+def synthid_official_g_values(w: torch.Tensor, x_k: torch.Tensor, sk: int, depth: int) -> torch.Tensor:
+    """
+    SynthID-Text g-values with Google DeepMind's hashing (pip install synthid-text): one keyed coin per (window of 3
+    tokens, token, layer), with `depth` layer keys drawn from sk. w (b, 3), x_k (b, n) -> (b, n, depth) float.
+    """
+    cache_key = (int(sk), int(depth), str(w.device))
+    if cache_key not in _SYNTHID_PROCESSORS:
+        from synthid_text.logits_processing import SynthIDLogitsProcessor
+
+        layer_keys = [int(v) for v in np.random.default_rng(int(sk)).integers(1, 2**30, size=depth)]
+        # Built on CPU (its hash initial value uses .numpy()), then moved.
+        proc = SynthIDLogitsProcessor(ngram_len=4, keys=layer_keys, context_history_size=1024, temperature=1.0, top_k=1000,
+                                      device=torch.device("cpu"))
+        proc.keys = proc.keys.to(w.device)
+        proc.device = w.device
+        _SYNTHID_PROCESSORS[cache_key] = proc
+    proc = _SYNTHID_PROCESSORS[cache_key]
+    hash_keys, _ = proc._compute_keys(w.long(), x_k.to(w.device).long())
+    return proc.get_gvals(hash_keys).float()
 
 
 def _load_filter_cache(filter_path: str, filter_keys: str) -> tuple[list[str], dict]:
@@ -436,8 +545,10 @@ def score_listed_tokens(
         wm_mask = prf_binary(wm_windows_exp, listed_tokens, wm_args.secret_key, gamma=wm_args.gamma)
         scores = wm_mask.float()
     elif method.startswith("uni"):  # uniform
-        wm_mask = prf_uniform(wm_windows_exp, listed_tokens, wm_args.secret_key)
-        scores = wm_mask.float()
+        if getattr(wm_args, "prf", "textseal") == "hires":
+            scores = prf_hires(wm_windows_exp, listed_tokens, wm_args.secret_key)
+        else:
+            scores = prf_uniform(wm_windows_exp, listed_tokens, wm_args.secret_key).float()
     elif method == "none":
         scores = torch.zeros((batch_size, n_listed), device=device)
     else:

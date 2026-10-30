@@ -66,9 +66,10 @@ Entropy weighting gives more weight to high-entropy tokens.
 **Localized detection** — O(N log N) geometric cover search with Bonferroni correction:
 `p_final = min(p_global, p_single_loc, p_multi_loc) * 3`.
 
-**Speculative decoding** — Draft K tokens with Key A, target verifies.
-Rejected tokens resampled from `(P_target - P_draft)+` with Key B.
-100% of tokens carry watermark signal.
+**Speculative decoding** — `textseal.watermarking.speculative.SpeculativeGenerator` (block or token verification). With
+`watermark_type="textseal"`, drafts use the routed key, the target verifies natively, and the last token of a call is drawn
+with the other key when it comes from the residual. See [README_textseal2.md](README_textseal2.md) for the exact
+(distortion-free) scheme of TextSeal2 under speculative decoding.
 
 ## Files
 
@@ -76,5 +77,6 @@ Rejected tokens resampled from `(P_target - P_draft)+` with Key B.
 |------|-------------|
 | `config.py` | WatermarkConfig, dual-key constants |
 | `core.py` | PRF helpers, dual-key kernels |
-| `generator.py` | TextSealGenerator and SpeculativeGenerator |
+| `generator.py` | TextSealGenerator (and the other generators) |
+| `speculative.py` | SpeculativeGenerator: watermarked speculative decoding (block or token verification) |
 | `detector.py` | TextSealDetector and localized detection |
