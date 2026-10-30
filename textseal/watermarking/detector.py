@@ -648,7 +648,18 @@ class TextSeal2Detector(WmDetector):
         keys = [self.wm_args.key_a, self.wm_args.key_b]
         return copula_scores(torch.tensor([ngram_tokens]), torch.tensor([token_id]), keys, self.wm_args.prf).item()
 
-    def get_pvalue(self, score: float, ntoks: int, eps: float = 1e-200):
+    def score_keys(self, ngram_tokens, token_id):
+        """(key A alone, key B alone): -log Phi(-G_k), each Exp(1) without watermark (public / private tests)."""
+        w, x = torch.tensor([ngram_tokens]), torch.tensor([token_id])
+        return tuple(copula_scores(w, x, [key], self.wm_args.prf).item() for key in (self.wm_args.key_a, self.wm_args.key_b))
+
+    @staticmethod
+    def fuse_keys(scores_by_key) -> np.ndarray:
+        """Per-key scores (n, 2) -> score_tok's -log Phi(-G*), G* = (G_A + G_B) / sqrt 2, with G_k = -Phi^-1(exp(-s_k))."""
+        gauss = -special.ndtri(np.exp(-np.asarray(scores_by_key, dtype=float).reshape(-1, 2)))
+        return -special.log_ndtr(-gauss.sum(axis=1) / np.sqrt(2))
+
+    def get_pvalue(self, score: float, ntoks: int, eps: float = 1e-200, alpha: float = None):
         return max(float(special.gammaincc(ntoks, score)), eps) if ntoks else 1.0
 
 
@@ -813,14 +824,23 @@ def text_channels(detector, text, eps: float = 1e-200) -> dict:
     return dual_key_channels(detector, per_key_scores(detector, text), eps)
 
 
+def fuse_key_scores(detector, scores_by_key) -> np.ndarray:
+    """Fused per-token scores from per-key scores (n, 2): the detector's own fusion (TextSeal2: virtual key G*),
+    else the alpha mix of TextSeal / key routing."""
+    scores = np.asarray(scores_by_key, dtype=float).reshape(-1, 2)
+    if hasattr(detector, "fuse_keys"):
+        return detector.fuse_keys(scores)
+    return detector.alpha * scores[:, 0] + (1 - detector.alpha) * scores[:, 1]
+
+
 def dual_key_channels(detector, scores_by_key, eps: float = 1e-200) -> dict:
     """p-values of key A alone (public), key B alone (private) and their alpha mix (fused),
     from per-key scores of shape (n, 2) as returned by get_scores_by_t(..., per_key=True)."""
     scores = np.asarray(scores_by_key, dtype=float).reshape(-1, 2)
     n = len(scores)
-    fused = detector.alpha * scores[:, 0] + (1 - detector.alpha) * scores[:, 1]
+    fused = fuse_key_scores(detector, scores)
     channels = {}
-    for name, s, alpha in (("public", scores[:, 0], 1.0), ("private", scores[:, 1], 1.0), ("fused", fused, detector.alpha)):
+    for name, s, alpha in (("public", scores[:, 0], 1.0), ("private", scores[:, 1], 1.0), ("fused", fused, getattr(detector, "alpha", None))):
         p_value = detector.get_pvalue(float(np.sum(s)), n, eps, alpha=alpha)
         channels[name] = {"p_value": float(p_value), "score_sum": float(np.sum(s)), "n_tokens": n}
     return channels

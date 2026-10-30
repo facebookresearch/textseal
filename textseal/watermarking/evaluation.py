@@ -23,7 +23,7 @@ from typing import Optional
 from sentence_transformers import SentenceTransformer
 import torch
 
-from textseal.watermarking.detector import build_detector, dual_key_channels
+from textseal.watermarking.detector import build_detector, dual_key_channels, fuse_key_scores
 
 # HF creates warning when using multiprocessing after tokenizers import
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -112,8 +112,7 @@ class WatermarkEvaluator:
         scores_array = np.array(scores[0])  # Convert to numpy array
         if dual_key:  # per-key scores (n, 2) -> public / private / fused channels; scores_array becomes fused
             channels = dual_key_channels(detector, scores_array)
-            per_key = scores_array.reshape(-1, 2)
-            scores_array = detector.alpha * per_key[:, 0] + (1 - detector.alpha) * per_key[:, 1]
+            scores_array = fuse_key_scores(detector, scores_array)
         p_value = detector.get_pvalue(float(np.sum(scores_array)), int(len(scores_array)), eps=1e-200)
         stats = {
             "score": float(np.mean(scores_array)),
