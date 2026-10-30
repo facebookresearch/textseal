@@ -80,9 +80,3 @@ Paper settings: Qwen3.5-9B (target) and Qwen3.5-0.8B (drafter), temperature 1, t
 | Tables, figures | `analyze all --gen_dirs … --pv_dir … --out …` then `figures --analysis … --detect … --ndraft 8` |
 
 Commands are `python -m textseal.analysis.textseal2.<script>`. Under speculative decoding the records also store, per token, the source (draft / replaced / bonus), the target and drafter probabilities and entropies, and per call the kept drafts and timings, so acceptance, tokens per call, latency and distortion come from the same runs.
-
-## Checks
-
-- `python -m textseal.watermarking.verification`: the J table against Monte Carlo, acceptance = 1 − TV and output law of the token rule; the law of (drafts, kept length, last token) of every block rule against block verification (χ² tests; the raw-clock control fails, as it should).
-- `python -m textseal.watermarking.speculative`: the baselines under block verification emit the target law and keep native acceptance (textGrain's own recipe lowers it).
-- Against the paper's research code (fixed seeds): identical tokens for every speculative scheme, identical samplers per step, identical detector p-values.
