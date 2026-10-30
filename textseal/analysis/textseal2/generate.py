@@ -41,7 +41,7 @@ from textseal.watermarking.speculative import SpeculativeGenerator
 
 
 def answer_secret(row: int) -> int:
-    """Secret of the one-key-per-answer runs (distortion tests over keys)."""
+    """Secret of the one-key-per-answer runs (distortion tests over keys); other runs use 42. Not written to the records."""
     return 10_000_000 + 7919 * row
 
 
@@ -177,7 +177,7 @@ def main() -> None:
         torch.manual_seed(1_000_003 * it["seed"] + 1009 * it["row"] + it["ans"] + 7 * it["ndraft"])
         prompt, max_new, extra = prompt_of(it, tok, prompts, args)
         res = gen.generate_one(prompt, max_new, args.temperature, args.top_p)
-        rec = {**it, **extra, "config": config_name(it["scheme"], it["rho"], it["ndraft"]), "key": res.pop("key"), "secret": secret,
+        rec = {**it, **extra, "config": config_name(it["scheme"], it["rho"], it["ndraft"]), "key": res.pop("key"),
                "n_prompt": len(prompt), "max_new": max_new, "meta": meta, **res}
         write(out_dir, it, args.shard, rec)
         if jj % 20 == 0 or jj == len(spec_items) - 1:
@@ -199,7 +199,7 @@ def main() -> None:
             ids = gen.generate([p for p, _, _ in built], max(m for _, m, _ in built), args.temperature, args.top_p, return_ids=True)
             for it, (prompt, max_new, extra), out in zip(batch, built, ids):
                 out = out[:max_new]
-                write(out_dir, it, args.shard, {**it, **extra, "config": name, "secret": 42, "n_prompt": len(prompt), "max_new": max_new,
+                write(out_dir, it, args.shard, {**it, **extra, "config": name, "n_prompt": len(prompt), "max_new": max_new,
                                                 "meta": meta, "ids": out, "wall_batch": time.time() - t0})
             print(f"{name} {dataset}/{kind}: {start + len(batch)}/{len(group)}", flush=True)
     print("done", flush=True)
