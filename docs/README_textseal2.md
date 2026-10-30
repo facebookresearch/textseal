@@ -79,9 +79,8 @@ This writes the prompt files that the scripts read by default (or set `TEXTSEAL2
 | File | Source | Content |
 |---|---|---|
 | `data/eli5.jsonl` | [sentence-transformers/eli5](https://huggingface.co/datasets/sentence-transformers/eli5), train split | 267,901 questions with human answers, in the original order, without the math-heavy rows listed in `textseal/analysis/textseal2/eli5_dropped_rows.txt.gz`. Detection uses the first 3000 questions, diversity the first 100 (16 or 32 answers each), the unwatermarked calibration set rows 100,000 to 109,999. |
+| `data/mbpp.jsonl` | [google-research-datasets/mbpp](https://huggingface.co/datasets/google-research-datasets/mbpp), test split | 500 code prompts (tasks 11 to 510): an instruction, the problem and its assert tests; pass it to `generate --datasets code --code_file data/mbpp.jsonl`. |
 | `data/aime_all.jsonl` | [gneubig/aime-1983-2024](https://huggingface.co/datasets/gneubig/aime-1983-2024) | 933 AIME problems (id, question, answer, year); the paper samples 100 with seed 0 and asks for a `\boxed{}` answer. |
-
-For code, MBPP prompts come from `setup/process_mbpp.py` (pass `--code_file` to `generate`).
 
 ### Runs
 
@@ -95,7 +94,7 @@ Paper settings: Qwen3.5-9B (target) and Qwen3.5-0.8B (drafter), temperature 1, t
 | Distortion tests | `generate --kinds dist --dist_configs residj:0.9 residjraw:0.9 tsb:0.5 … noneb none` |
 | AIME | `generate --datasets aime --n_aime_answers 16 --max_new_aime 8192 --configs …` then `detect --dataset aime --lengths 256 512 1024 2048` |
 | Second drafter–target pair | `generate --draft meta-llama/Llama-3.2-1B-Instruct --target meta-llama/Llama-3.1-8B-Instruct --prf textseal --configs …` |
-| Code (MBPP) | `generate --datasets code --code_file mbpp_prompts.jsonl --configs ns_…` (pass@1 with `textseal.watermarking.evaluation`) |
+| Code (MBPP) | `generate --datasets code --code_file data/mbpp.jsonl --configs ns_…` (pass@1 with `textseal.watermarking.evaluation`) |
 | Detection, entropy weighting | `detect entropy …` then `detect pv --entropy --gen_dirs … --null_dir …/eli5/det/ns_none --out …` |
 | Tables, figures | `analyze all --gen_dirs … --pv_dir … --out …` then `figures --analysis … --detect … --ndraft 8` |
 
