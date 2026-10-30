@@ -24,8 +24,8 @@ import numpy as np
 
 from textseal.watermarking.config import WatermarkConfig
 
-ELI5_FILE = os.environ.get("TEXTSEAL2_ELI5", "/checkpoint/avseal/pfz/data/eli5_full_nomath.jsonl")
-AIME_FILE = os.environ.get("TEXTSEAL2_AIME", "/checkpoint/avseal/datasets/llm_evals/aime/aime_all.jsonl")
+ELI5_FILE = os.environ.get("TEXTSEAL2_ELI5", "data/eli5.jsonl")  # Written by prepare_data.py.
+AIME_FILE = os.environ.get("TEXTSEAL2_AIME", "data/aime_all.jsonl")
 AIME_SUFFIX = "\n\nPlease reason step by step, and put your final answer within \\boxed{}."
 DRAFT, TARGET = "Qwen/Qwen3.5-0.8B", "Qwen/Qwen3.5-9B"
 WINDOW = 3

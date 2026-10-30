@@ -121,6 +121,7 @@ def main() -> None:
     ap.add_argument("--dist_configs", nargs="+", default=["none"])
     ap.add_argument("--ndrafts", nargs="+", default=["8"])
     ap.add_argument("--n_det", type=int, default=3000)
+    ap.add_argument("--eli5_offset", type=int, default=0, help="first ELI5 row (the paper's unwatermarked calibration set: 100000)")
     ap.add_argument("--n_div", type=int, default=100)
     ap.add_argument("--n_div_answers", type=int, default=16)
     ap.add_argument("--n_dist", type=int, default=480)
@@ -162,7 +163,7 @@ def main() -> None:
     load = lambda name: AutoModelForCausalLM.from_pretrained(name, dtype=torch.bfloat16, device_map="cuda").eval()
     target = load(args.target)
     draft = load(args.draft) if any(is_speculative(it["scheme"]) and not it["scheme"].startswith("ar") for it in todo) else None
-    prompts = {"eli5": load_questions(max(args.n_det, args.n_div, args.n_dist)), "aime": aime_problems(args.n_aime) if "aime" in " ".join(args.datasets) else [],
+    prompts = {"eli5": load_questions(max(args.n_det, args.n_div, args.n_dist), offset=args.eli5_offset), "aime": aime_problems(args.n_aime) if "aime" in " ".join(args.datasets) else [],
                "code": load_questions(args.n_code, path=args.code_file) if args.code_file else []}
     code_md5 = hashlib.md5(b"".join(Path(m.__file__).read_bytes() for m in (sys.modules[SpeculativeGenerator.__module__], sys.modules[build_generator.__module__]))).hexdigest()[:12]
     meta = {"host": socket.gethostname(), "gpu": torch.cuda.get_device_name(0), "procs_per_gpu": int(os.environ.get("PROCS_PER_GPU", "1")), "draft": args.draft,

@@ -1,5 +1,7 @@
 # TextSeal2
 
+Paper: [arXiv:2610.40613](https://arxiv.org/abs/2610.40613).
+
 TextSeal2 is a distortion-free, two-key generation-time watermark that keeps working under speculative decoding. It lives in `textseal.watermarking` next to the other methods (`watermark_type="textseal2"`), and `textseal/analysis/textseal2/` holds the scripts that reproduce the paper's experiments.
 
 ## Method
@@ -65,11 +67,29 @@ p_value = det.get_pvalue(sum(scores), len(scores))
 
 ## Reproducing the paper
 
-Paper settings: Qwen3.5-9B (target) and Qwen3.5-0.8B (drafter), temperature 1, top-p 0.95, window 3, 200 new tokens on ELI5, thresholds at a false-positive rate of 1e-3 calibrated on 10 keys × 10,000 unwatermarked answers. Set `TEXTSEAL2_ELI5` and `TEXTSEAL2_AIME` to the prompt files (jsonl with a `question` field; AIME rows also need `id`, `answer`, `year`). Every script shards with `--shard k --n_shards K` and resumes.
+### Data
+
+```bash
+pip install -e ".[textseal2]"
+python -m textseal.analysis.textseal2.prepare_data --out_dir data
+```
+
+This writes the prompt files that the scripts read by default (or set `TEXTSEAL2_ELI5` / `TEXTSEAL2_AIME`):
+
+| File | Source | Content |
+|---|---|---|
+| `data/eli5.jsonl` | [sentence-transformers/eli5](https://huggingface.co/datasets/sentence-transformers/eli5), train split | 267,901 questions with human answers, in the original order, without the math-heavy rows listed in `textseal/analysis/textseal2/eli5_dropped_rows.txt.gz`. Detection uses the first 3000 questions, diversity the first 100 (16 or 32 answers each), the unwatermarked calibration set rows 100,000 to 109,999. |
+| `data/aime_all.jsonl` | [gneubig/aime-1983-2024](https://huggingface.co/datasets/gneubig/aime-1983-2024) | 933 AIME problems (id, question, answer, year); the paper samples 100 with seed 0 and asks for a `\boxed{}` answer. |
+
+For code, MBPP prompts come from `setup/process_mbpp.py` (pass `--code_file` to `generate`).
+
+### Runs
+
+Paper settings: Qwen3.5-9B (target) and Qwen3.5-0.8B (drafter), temperature 1, top-p 0.95, window 3, 200 new tokens on ELI5, thresholds at a false-positive rate of 1e-3 calibrated on 10 keys × 10,000 unwatermarked answers. Every script shards with `--shard k --n_shards K` and resumes.
 
 | Paper item | Commands |
 |---|---|
-| Null set for thresholds | `generate --configs ns_none --kinds det --n_det 10000` |
+| Null set for thresholds | `generate --configs ns_none --kinds det --n_det 10000 --eli5_offset 100000` |
 | Table 1, Fig. 1 (speculative panel), number of drafts | `generate --configs residj:{0.7,0.8,0.85,0.9,0.925,0.95,0.99} tsb:{0.5,0.7,0.8,0.9,0.95} tgb:{0.25,0.5,0.75} tgpb:{0.25,0.5,0.75} sidb:{2,3,5,10,15,20} amb:{0.7,…,0.99} noneb --ndrafts 4 8 16` |
 | Fig. 1 (without speculative decoding), three models | `generate --configs ns_ts2:… ns_ts:… ns_tg:… ns_sid:… ns_am:… ns_none --n_div_answers 32 [--target …]` |
 | Distortion tests | `generate --kinds dist --dist_configs residj:0.9 residjraw:0.9 tsb:0.5 … noneb none` |
